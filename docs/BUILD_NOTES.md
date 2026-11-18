@@ -118,9 +118,14 @@ view, too small / dark / blurry, or no complete rep.
 
 ## Known limitations
 
-* **Depth is often "cannot assess"** near parallel: the two pose passes
-  disagree by up to ~±6 cm at the bottom on the common sample. A heavier pose
-  model or a thigh-contour measurement would help.
+* **Depth is often "cannot assess"**: in 4 of the 5 real clips (sample
+  included) it was either right at parallel, with the two pose passes
+  disagreeing by up to ~±6 cm, or the near plate covered the hips at the
+  bottom. A camera a little lower and further back, a heavier pose model, or
+  a thigh-contour measurement would help.
+* **Anything between the camera and the lifter** (rack uprights, a safety
+  crossbar) breaks body tracking; such videos are rejected with an explanation
+  rather than measured.
 * **Bar over midfoot** depends on the camera being square to the lifter and
   on perspective (plate nearer the camera than the foot). Both are estimated
   and widen the band; neither is calibrated.

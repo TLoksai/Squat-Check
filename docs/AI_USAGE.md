@@ -68,6 +68,10 @@ checked against rendered video frames and the reference text during the session.
    Fix: lock the plate size in a second tracking pass, and use the 95th
    percentile instead of the maximum. Bar results now agree to within ~1 cm
    across original, mirrored and re-encoded copies.
+7. **A dark, blurry, low-resolution clip got confident fails.** The two pose
+   passes agreed with each other but were both wrong, so the mirror check
+   didn't catch it. Added a quality gate (size, brightness, sharpness) that
+   rejects such videos with a plain explanation.
 8. **The AI coach crashed on its first live run.** Unit tests and a direct
    API call both worked, but inside the app the coach fell back to rulebook
    tips with a `TypeError`. The measurements still held numpy numbers when the
@@ -75,15 +79,38 @@ checked against rendered video frames and the reference text during the session.
    already-converted saved file, so they never hit it. Fix: convert to plain
    numbers before the coach runs, plus a regression test, and log coach errors
    in full instead of swallowing them.
-7. **A dark, blurry, low-resolution clip got confident fails.** The two pose
-   passes agreed with each other but were both wrong, so the mirror check
-   didn't catch it. Added a quality gate (size, brightness, sharpness) that
-   rejects such videos with a plain explanation.
+9. **A plastic stick was tracked as a barbell.** On a clip using a PVC pipe
+   (no plate), the app reported the bar "found" in 66% of frames: the
+   appearance tracker had drifted onto the hands and head. Fix: a minimum plate
+   size (from the measured plate-to-leg ratio of real clips), appearance
+   matching only for gaps up to 0.5 s, and "no plate found" when the circle
+   itself is rarely detected.
+10. **The plate hid the hips at the bottom, and the app measured depth at the
+    wrong moment.** On a clip with the lifter farther away, the hip point
+    jumped *up* exactly at the deepest moment, so one rep was split in two
+    and depth was judged at a shallower frame. Close-up crops at the app's
+    "bottom" frame first seemed to confirm its "does not meet". Looking at the
+    frames around it showed the real bottom was deeper, with the hips behind
+    the plate. Fix: when the plate is well tracked, reps and bottoms come from
+    the bar's lowest point; if the hip is behind the plate at the bottom,
+    depth is "cannot assess".
+11. **A walk-out from the rack was counted as part of the first rep**, which
+    inflated bar drift to more than a foot length. Fix: a rep starts where
+    the descent begins (looking back at most 3 s), and foot positions are
+    taken per rep.
+12. **A rack crossbar hiding the legs produced fake reps and impossible
+    numbers** (a heel "lifted 6.8 foot lengths"). Fix: a rep must actually
+    bend the knees, both pose passes must see the same hip drop, impossible
+    values count as tracking errors, and reps that couldn't be tracked are
+    reported to the user instead of silently dropped.
 
 ## Selected prompts
 
 * "Give me what this is in simple, with a picture" → plain-language
   explanation and flow diagrams before building.
 * "Let's start building the squat app and push it to GitHub once it's ready."
+* "I want to try with the new videos" → four real side-view clips from other
+  lifters, which exposed mistakes 9-12: the derived test clips had all come
+  from one lifter and one camera.
 * The mirrored-video consistency test was the agent's proposal after
   reviewing its own first results. It is the check that found mistake 1.

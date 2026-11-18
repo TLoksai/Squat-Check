@@ -16,14 +16,14 @@ the back angle. Filled dots = seen; hollow = estimated.*
 
 | Check (reference pages) | Rep 1 | Rep 2 | Notes |
 |---|---|---|---|
-| Hips below top of knee (2, 15, 33, 35) | ? | ? | Hip ≈ 2 cm above the knee joint, but the two pose passes range from 7 cm above to 2.5 cm below: too close to call |
-| Bar over midfoot (8, 9, 11, 32) | ✗ | ? | Bar ≈ 0.46 foot lengths (~9 cm) in front of midfoot; over midfoot when standing. Rep 2 (~8 cm) sits on the edge of the camera-angle margin |
-| Bar path vertical (6, 7) | ✗ | ✗ | ≈ 0.46-0.50 foot lengths (9-10 cm) of forward/back travel; both pose passes agree |
-| Back angle about 45° (22, 33, 35) | ? | ? | 58° and 61° from the floor (passes: 57-64°). The app reads "about 45°" as 35-55°; this is above it but within the measurement margin |
+| Hips below top of knee (2, 15, 33, 35) | ? | ? | Hip ≈ 2-3 cm above the knee joint, but the two pose passes range from 8 cm above to 4 cm below: too close to call |
+| Bar over midfoot (8, 9, 11, 32) | ✗ | ? | Bar ≈ 0.49 foot lengths (~9 cm) in front of midfoot; over midfoot when standing. Rep 2 (~8 cm) sits inside the camera-angle margin |
+| Bar path vertical (6, 7) | ✗ | ✗ | ≈ 0.44-0.45 foot lengths (~8.5 cm) of forward/back travel; both pose passes agree |
+| Back angle about 45° (22, 33, 35) | ? | ? | 58° and 61° from the floor (passes: 56-64°). The app reads "about 45°" as 35-55°; this is above it but within the measurement margin |
 | Knees a little in front of toes (17, 22) | ✓ | ? | |
-| Hips drive up first (22, 23, 32, 35) | ✓ | ✓ | Torso turns < 4° more upright in the first third of the ascent |
+| Hips drive up first (22, 23, 32, 35) | ✓ | ✓ | Torso turns < 3° more upright in the first third of the ascent |
 | Heels down (22, 24) | ? | ? | Heel rise ≈ 0.03 foot lengths: small, but inside the noise band |
-| No pause at the bottom (16, 32) | ? | ✓ | 0.50 s and 0.37 s near the bottom |
+| No pause at the bottom (16, 32) | ✓ | ✓ | 0.33 s near the bottom on both reps |
 
 **Bottom line for this lifter:** the clearest, best-supported finding is that
 the bar drifts forward of the midfoot and doesn't travel in a vertical line
@@ -64,6 +64,19 @@ side-view squat video can be uploaded the same way.)
 | `dark_blurry.mp4` | Dark, blurred, one-third size | **Rejected**: "too dark; too blurry", with re-recording tips. Before the quality gate it produced confident fails that were wrong. |
 | `no_squat.mp4` | A still standing clip, no rep | **Rejected**: "We couldn't find a full squat rep". |
 | Re-encoded sample, uploaded through the browser | Same lifter, extra compression: how stable are the results? | Same ✓/✗ on every clear-cut check. The two values sitting on a limit (rep 2 bar over midfoot, rep 2 back angle) read ✗ instead of ?. Expected: values at a limit can move between "?" and a verdict, but never from ✓ to ✗. |
+
+## Real clips from other lifters
+
+Four public side-view clips from YouTube (not committed; download links below),
+each chosen to stress a different part of the pipeline. Results were checked
+against the frames by eye.
+
+| Clip | What it stresses | What the app reports | Checked against the video |
+|---|---|---|---|
+| [Back Squat - Side View](https://youtube.com/watch?v=txnwoJz-Rno) (14 s) | Walk-out from the rack, then 2 reps; whole body and plate visible | 2 reps. Bar path ✗ on both (~0.45 foot lengths of drift), bar over midfoot ✗ on rep 2, knee position / hip drive / heels / pause ✓. Depth "?" on both: hip within 1 cm of the knee | ✓ The hip sits right on the knee line at both bottoms (parallel), so "too close to call" is the honest answer. The walk-out is no longer counted as part of rep 1 |
+| [Low Bar Squat (side)](https://youtube.com/watch?v=z8gpuP7E1Lw) (26 s) | Lifter farther away, other plates in the background, plate covers the hips at the bottom | 7 reps (found from the bar). Bar path ✗ on 6 of 7. Depth, back angle and hip drive "?": "the hips couldn't be tracked reliably (they may be hidden behind the plate)" | ✓ At the deepest moment the plate is in front of the hips. Earlier versions split one rep in two and failed depth at the wrong moment (see AI_USAGE.md #10) |
+| [Low-Bar Squat good/bad/good/bad](https://youtube.com/watch?v=rInizqBudBA) (17 s) | A plastic stick, not a barbell: no plate; alternating good and bad reps | "We couldn't see the weight plate", so all bar checks are "?". **Reps 2 and 4 flagged** (back too upright, knees far forward, pause at the bottom); reps 1 and 3 pass hip drive with other checks borderline | ✓ Matches the clip's own good/bad labelling: reps 2 and 4 are the upright, knees-forward squats |
+| [squat 396lbs (side view)](https://youtube.com/watch?v=5GQkfLG3JIQ) (26 s) | Filmed through the rack; a crossbar hides the hips and knees | **Rejected**: "We saw what looks like a rep at 2.0 s, 5.8 s, 20.6 s, but couldn't track the legs reliably (they may be hidden behind the rack or the plate)" | ✓ The real rep is at ~20.6 s; at its bottom the pose model reports an almost straight knee (160°) for a deep squat. Earlier versions produced 4 "reps" with impossible values (heel lifted 6.8 foot lengths) |
 
 ### Consistency summary
 

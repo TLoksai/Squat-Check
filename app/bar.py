@@ -27,9 +27,15 @@ import numpy as np
 from .pose import SIDES
 
 MAX_GAP = 6                  # frames we are willing to interpolate (0.2 s at 30 fps)
-RADIUS_RANGE = (0.12, 0.60)  # plate radius as a fraction of the lifter's leg length
+# Plate radius as a fraction of the lifter's leg length (hip-knee-ankle). A
+# 45 cm plate is ~0.26 of an adult leg and looks bigger because it's nearer the
+# camera; real clips measured 0.22-0.41. The lower limit stops the head or a
+# hand being taken for a plate (a stick-only clip gave a false "plate" at 0.165).
+RADIUS_RANGE = (0.19, 0.60)
 MAX_STEP = 0.6               # max centre movement between frames, in plate radii
 MIN_MATCH = 0.6              # template-match score needed to accept a "tracked" frame
+MAX_TRACK_RUN = 15           # appearance-matching may bridge at most 0.5 s of blur
+MIN_HOUGH_SHARE = 0.25       # below this share of circle detections: "no plate found"
 MEASURED = ("detected", "tracked")
 
 
@@ -70,10 +76,13 @@ def track_bar(video_path: Path, landmarks: np.ndarray, side: str,
     half = (lambda f: progress(f / 2)) if progress else None
     first = _track(video_path, landmarks, side, leg, None, half)
     det = first["status"] == "detected"
-    if det.sum() < 10:
+    if det.sum() < max(10, MIN_HOUGH_SHARE * n):
+        # The plate circle itself was rarely seen: whatever was followed is not
+        # trustworthy (a stick, a head, a hand). Report no bar instead.
         if progress:
             progress(1.0)
-        return first
+        return _result(np.full((n, 2), np.nan, dtype=np.float32), np.full(n, np.nan, dtype=np.float32),
+                       np.array(["missing"] * n, dtype=object))
     r_lock = float(np.nanmedian(first["radius"][det]))
     rest = (lambda f: progress(0.5 + f / 2)) if progress else None
     second = _track(video_path, landmarks, side, leg, r_lock, rest)
@@ -94,6 +103,7 @@ def _track(video_path: Path, landmarks: np.ndarray, side: str, leg: float, r_loc
     cap = cv2.VideoCapture(str(video_path))
     prev = None        # (x, y, r) of the last measured plate
     template = None    # grayscale patch of the last Hough-detected plate
+    track_run = 0      # frames in a row found only by appearance matching
     for t in range(n):
         ok, frame = cap.read()
         if not ok:
@@ -134,7 +144,9 @@ def _track(video_path: Path, landmarks: np.ndarray, side: str, leg: float, r_loc
             prev = found.astype(np.float32).copy()
             x0, y0, x1, y1 = _window(frame.shape, found[0], found[1], found[2] * 1.05)
             template = gray_full[y0:y1, x0:x1].copy()
-        elif prev is not None and template is not None and template.size:
+            track_run = 0
+        elif prev is not None and template is not None and template.size and track_run < MAX_TRACK_RUN:
+            track_run += 1
             px, py, pr = prev
             x0, y0, x1, y1 = _window(frame.shape, px, py, pr * (1.05 + MAX_STEP))
             area = gray_full[y0:y1, x0:x1]

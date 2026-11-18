@@ -40,11 +40,12 @@ def render(job_dir: Path, out: Path) -> None:
             cv2.polylines(img, [np.array(path, dtype=np.int32).reshape(-1, 1, 2)], False, (247, 85, 168), 4)
         if F["bar"] and F["bar_r"]:
             cv2.circle(img, _pt(F["bar"]), int(F["bar_r"]), (247, 85, 168), 2)
-        if a["feet"].get("seen", True):
-            mx, my = _pt(a["feet"]["midfoot"])
+        feet = rep.get("feet") or a["feet"]
+        if feet.get("seen", True):
+            mx, my = _pt(feet["midfoot"])
             cv2.line(img, (mx, my), (mx, 0), (238, 211, 34), 2)
             for k in ("heel", "toe"):
-                cv2.circle(img, _pt(a["feet"][k]), 6, (11, 158, 245), 2)
+                cv2.circle(img, _pt(feet[k]), 6, (11, 158, 245), 2)
         # knee-height line and joints
         kx, ky = _pt(F["knee_s"])
         hx, hy = _pt(F["hip_s"])

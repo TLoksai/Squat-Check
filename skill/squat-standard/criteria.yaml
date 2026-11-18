@@ -233,7 +233,7 @@ criteria:
     phase: bottom
     check:
       metric: bottom_pause_s
-      unit: "seconds the hips stay within 5% of their lowest point"
+      unit: "seconds the bar (or hips, if the bar isn't tracked) stays within 5% of its lowest point"
       target: {max: 0.6}
       source: app_interpretation
       uncertainty: 0.1

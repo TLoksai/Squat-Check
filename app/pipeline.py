@@ -67,6 +67,9 @@ def run(job_dir: Path, src: Path, progress: Progress) -> dict:
     return _assess(job_dir, info.to_dict(), lm, passes, bar, skill, progress, timings, t0)
 
 
+HIP_METRICS = {"depth_margin", "back_angle_bottom_deg", "back_angle_change_early_ascent_deg", "knee_ahead_of_toe"}
+
+
 def _pass_uncertainty(result: dict, alts: list[dict]) -> None:
     """Widen each metric's uncertainty by half the disagreement between the
     normal and mirrored pose passes (measured on this very video)."""
@@ -75,6 +78,30 @@ def _pass_uncertainty(result: dict, alts: list[dict]) -> None:
         for alt in alts:
             cand = [r for r in alt.get("reps", []) if abs(r["bottom_frame"] - rep["bottom_frame"]) <= 10]
             matched.append(cand[0] if cand else None)
+        # Both passes must see a similar hip drop; if one sees a much smaller
+        # one, the "rep" is the model guessing behind something (e.g. a rack
+        # crossbar), so nothing in it is judged.
+        roms = [r.get("rom_px") for r in matched if r]
+        if len(roms) == 2 and min(roms) < 0.5 * max(roms):
+            rep["tracking_unreliable"] = True
+            bar_based = rep.get("rep_signal") == "bar"
+            # Rep found from the bar: only checks that use the hips are affected.
+            # Rep found from the hips: the rep itself is in doubt, so nothing is judged.
+            affected = HIP_METRICS if bar_based else set(rep["metrics"])
+            for key in affected:
+                m = rep["metrics"].get(key)
+                if m:
+                    m["observed"] = False
+                    m["detail"] += (" The two pose passes disagree about the hips in this rep (hip drop "
+                                    f"{roms[0]:.0f} vs {roms[1]:.0f} px), so it isn't judged.")
+            result["issues"].append({"code": "rep_unreliable", "message":
+                                     f"Rep {rep['index']}: the hips couldn't be tracked reliably (they may be hidden "
+                                     "behind the plate or rack), so depth, back angle and hip drive aren't judged."
+                                     if bar_based else
+                                     f"Rep {rep['index']}: body tracking was unreliable (part of the body may be "
+                                     "hidden), so it isn't judged."})
+            if not bar_based:
+                continue
         for key, m in rep["metrics"].items():
             vals = [r["metrics"][key]["value"] if r and r["metrics"].get(key) else None for r in matched]
             if m["value"] is None:

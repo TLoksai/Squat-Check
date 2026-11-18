@@ -420,7 +420,7 @@
       ctx.fillStyle = color; ctx.textBaseline = "middle"; ctx.fillText(text, bx + 5 * u, by + h / 2);
     };
 
-    const feet = a.feet;
+    const feet = rep?.feet || a.feet;   // per-rep feet (the lifter may walk out of the rack first)
     const feetSeen = feet.seen !== false;
     const mid = feet.midfoot, heel = feet.heel, toe = feet.toe;
 

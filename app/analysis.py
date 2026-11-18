@@ -23,6 +23,19 @@ from .quality import problems as video_quality_problems
 
 PLATE_DIAMETER_CM = 45.0  # standard competition / bumper plate (used only as a ruler)
 
+# Sanity limits: a squat can't produce values outside these, so a value outside
+# means the tracking failed and the check is "cannot assess" (app choice).
+PLAUSIBLE = {
+    "depth_margin": (-1.2, 1.2),                      # thigh lengths
+    "bar_midfoot_max_offset": (0.0, 2.0),             # foot lengths
+    "bar_horizontal_range": (0.0, 2.0),               # foot lengths
+    "back_angle_bottom_deg": (10.0, 88.0),            # degrees
+    "back_angle_change_early_ascent_deg": (-40.0, 40.0),
+    "knee_ahead_of_toe": (-1.0, 1.5),                 # foot lengths
+    "heel_lift": (0.0, 0.6),                          # foot lengths
+    "bottom_pause_s": (0.0, 5.0),
+}
+
 
 # ---------------------------------------------------------------- helpers
 
@@ -188,12 +201,35 @@ def analyse(landmarks: np.ndarray, bar: dict, fps: float, frame_size: tuple[int,
 
     back_angle = np.array([_angle_from_floor(top_x[t] - hip_x[t], top_y[t] - hip_y[t]) for t in range(n)])
 
-    # ---- reps: each rep is one dip of the hip signal
-    reps_raw = reps_override if reps_override is not None else _find_reps(hip_y, thigh_med, fps)
+    # knee angle (hip-knee-ankle): 180 = straight leg. Used to tell a real squat
+    # from a tracking glitch that only moves the hip point.
+    ankle_x, ankle_y = _smooth(ankle[:, 0]), _smooth(ankle[:, 1])
+    v1 = np.stack([hip_x - knee_x, hip_y - knee_y], axis=1)
+    v2 = np.stack([ankle_x - knee_x, ankle_y - knee_y], axis=1)
+    cosang = (v1 * v2).sum(1) / (np.linalg.norm(v1, axis=1) * np.linalg.norm(v2, axis=1) + 1e-9)
+    knee_angle = np.degrees(np.arccos(np.clip(cosang, -1, 1)))
+
+    # ---- reps: each rep is one dip of the bar (when the plate is well tracked)
+    # or of the hips. The plate is tracked far more reliably than a hip that the
+    # plate itself covers at the bottom: on one real clip the hip point jumped UP
+    # at the deepest moment, which split a rep in two and moved "the bottom".
+    bar_reps = bar["detected_ratio"] >= 0.8
+    sig = _smooth(np.where(bar_ok, bar_c[:, 1], np.nan)) if bar_reps else hip_y
+    rejected: list[int] = []
+    reps_raw = reps_override if reps_override is not None else \
+        _find_reps(sig, thigh_med, fps, None if bar_reps else knee_angle, rejected)
+    for p in rejected:
+        issues.append({"code": "rep_untracked", "message":
+                       f"Something that looks like a rep at {p / fps:.1f} s was not judged: the legs weren't tracked "
+                       "reliably there (they may be hidden behind the rack, the plate or another object)."})
     if not reps_raw:
-        return _unsuitable("We couldn't find a full squat rep (down and back up). "
-                           "Make sure the video shows at least one complete rep.", n, fps,
-                           extra={"side": side})
+        msg = ("We couldn't find a full squat rep (down and back up). "
+               "Make sure the video shows at least one complete rep.")
+        if rejected:
+            msg = (f"We saw what looks like a rep at {', '.join(f'{p / fps:.1f} s' for p in rejected)}, but couldn't "
+                   "track the legs reliably (they may be hidden behind the rack or the plate). "
+                   "Film with a clear side view of the whole body.")
+        return _unsuitable(msg, n, fps, extra={"side": side})
 
     min_bar_ratio = float(estimates.get("min_bar_detection_ratio", 0.6))
     persp_factor = float(estimates.get("plate_perspective_factor", 0.15))
@@ -201,32 +237,60 @@ def analyse(landmarks: np.ndarray, bar: dict, fps: float, frame_size: tuple[int,
     for i, rep_frames in enumerate(reps_raw, start=1):
         s0, b, e = rep_frames[:3]
         sl = slice(s0, e + 1)
-        top_level = min(hip_y[s0], hip_y[e])
-        rom = hip_y[b] - top_level
+        rom = sig[b] - min(sig[s0], sig[e])                    # travel of the rep signal (bar or hips)
+        hip_rom = hip_y[b] - min(hip_y[s0], hip_y[e])          # hip travel, compared across pose passes
         m: dict[str, Metric] = {}
-        # "The bottom" = the frames where the hips are within 3% of their
-        # lowest point. Bottom measurements are medians over these frames, so a
-        # one-frame shift in where the bottom is found doesn't move the result.
+        # "The bottom" = the frames where the bar (or hips) are within 3% of
+        # their lowest point. Bottom measurements are medians over these frames,
+        # so a one-frame shift in where the bottom is found doesn't move the result.
         if len(rep_frames) > 3:   # same bottom frames as the main analysis (pose-pass comparison)
             bot = np.arange(rep_frames[3][0], rep_frames[3][1] + 1)
         else:
-            bot = np.where(hip_y[s0:e + 1] >= hip_y[b] - 0.03 * rom)[0] + s0
+            bot = np.where(sig[s0:e + 1] >= sig[b] - 0.03 * rom)[0] + s0
         if bot.size == 0:
             bot = np.array([b])
+
+        # Is the hip or knee behind the plate at the bottom? The pose model
+        # still reports a confident point there, but it's a guess.
+        def behind_plate(px, py) -> bool:
+            return bool(any(bar_ok[t] and np.isfinite(bar_r[t]) and
+                            np.hypot(px[t] - bar_c[t, 0], py[t] - bar_c[t, 1]) < bar_r[t] for t in bot))
+        hip_hidden = behind_plate(hip_x, hip_y)
+        knee_hidden = behind_plate(knee_x, knee_y)
+        hidden_note = (" The hip was hidden behind the plate at the bottom, so this can't be measured." if hip_hidden else
+                       " The knee was hidden behind the plate at the bottom, so this can't be measured." if knee_hidden
+                       else "")
+
+        # Feet for THIS rep (the lifter may walk out of the rack before the
+        # set, so whole-video medians can be wrong). Foot checks are skipped if
+        # the feet move during the rep.
+        h_r = np.nanmedian(heel_raw[sl], axis=0)
+        t_r = np.nanmedian(toe_raw[sl], axis=0)
+        feet_note = ""
+        if feet_seen and np.all(np.isfinite(h_r)) and np.all(np.isfinite(t_r)) and abs(t_r[0] - h_r[0]) >= 10:
+            fl = float(abs(t_r[0] - h_r[0]))
+            mid_r, toe_r = (h_r + t_r) / 2.0, t_r
+            spread = float(np.nanpercentile(heel_raw[sl, 0], 90) - np.nanpercentile(heel_raw[sl, 0], 10))
+            feet_still = spread <= 0.35 * fl
+            if not feet_still:
+                feet_note = " The feet moved during this rep, so foot-based checks are not judged."
+        else:
+            fl, mid_r, toe_r, feet_still = foot_len, midfoot, toe_med, feet_seen
+        feet_ok = bool(feet_seen and feet_still)
 
         # depth: the document compares the hip crease with the top of the
         # kneecap. Both sit on the top surface of the thigh, about equally far
         # above the hip and knee joint centres the pose model tracks, so we
         # compare the joint centres (the offsets cancel; the rule's uncertainty
         # band covers the difference).
-        hip_seen = V("hip")[b] >= min_vis and V("knee")[b] >= min_vis
+        hip_seen = V("hip")[b] >= min_vis and V("knee")[b] >= min_vis and not hip_hidden and not knee_hidden
         gap_px = float(np.median(hip_y[bot] - knee_y[bot]))
         cm = abs(gap_px) / px_per_cm if px_per_cm else None
         m["depth_margin"] = Metric(
             gap_px / thigh_med, "thigh lengths", b, observed=bool(hip_seen),
             detail=f"At the bottom the hip is {abs(gap_px):.0f} px "
                    + (f"(about {cm:.0f} cm) " if cm else "")
-                   + f"{'below' if gap_px > 0 else 'above'} the knee.",
+                   + f"{'below' if gap_px > 0 else 'above'} the knee." + hidden_note,
             extra={"hip_y": round(float(hip_y[b]), 1), "knee_y": round(float(knee_y[b]), 1),
                    "approx_cm": None if cm is None else round(cm, 1)},
         )
@@ -235,26 +299,26 @@ def analyse(landmarks: np.ndarray, bar: dict, fps: float, frame_size: tuple[int,
         det_ratio = float(np.mean(np.isin(bar_status[sl], ["detected", "tracked"])))
         bar_enough = det_ratio >= min_bar_ratio
         bx = bar_x[sl]
-        offs = fwd * (bx - midfoot[0]) / foot_len
+        offs = fwd * (bx - mid_r[0]) / fl
         if np.isfinite(offs).any():
             # "Largest" offset = 95th percentile, so one glitchy frame can't decide it.
             p95 = float(np.nanpercentile(np.abs(offs), 95))
             j = int(np.nanargmin(np.abs(np.abs(offs) - p95)))
             off = float(np.sign(offs[j]) * p95)
-            cm = (abs(off) * foot_len / px_per_cm) if px_per_cm else None
+            cm = (abs(off) * fl / px_per_cm) if px_per_cm else None
             # Perspective: the plate is nearer the camera than the foot, so its
             # picture position is pushed away from the picture centre a little.
-            persp = abs(bx[j] - width / 2.0) * persp_factor / foot_len
+            persp = abs(bx[j] - width / 2.0) * persp_factor / fl
             m["bar_midfoot_max_offset"] = Metric(
-                abs(off), "foot lengths", s0 + j, observed=bar_enough and feet_seen, extra_uncertainty=parallax_foot + persp,
+                abs(off), "foot lengths", s0 + j, observed=bar_enough and feet_ok, extra_uncertainty=parallax_foot + persp,
                 detail=f"Largest bar distance from midfoot: {abs(off):.2f} foot lengths "
                        f"{'in front of' if off > 0 else 'behind'} the midfoot"
-                       + (f" (about {cm:.0f} cm, using the plate as a ruler)" if cm else "") + ".",
+                       + (f" (about {cm:.0f} cm, using the plate as a ruler)" if cm else "") + "." + feet_note,
                 extra={"direction": "forward" if off > 0 else "backward", "approx_cm": None if cm is None else round(cm, 1),
                        "bar_detected_ratio": round(det_ratio, 2)},
             )
-            rng = float((np.nanpercentile(bx, 97.5) - np.nanpercentile(bx, 2.5)) / foot_len)
-            cm_r = rng * foot_len / px_per_cm if px_per_cm else None
+            rng = float((np.nanpercentile(bx, 97.5) - np.nanpercentile(bx, 2.5)) / fl)
+            cm_r = rng * fl / px_per_cm if px_per_cm else None
             m["bar_horizontal_range"] = Metric(
                 rng, "foot lengths", s0 + j, observed=bar_enough,
                 detail=f"Bar moved {rng:.2f} foot lengths forward/back in total"
@@ -266,23 +330,26 @@ def analyse(landmarks: np.ndarray, bar: dict, fps: float, frame_size: tuple[int,
                 m[k] = Metric(None, "foot lengths", None, observed=False, detail="Bar not tracked in this rep.")
 
         # back angle at the bottom
-        top_seen = (bar_ok[b] if use_bar_for_torso else V("shoulder")[b] >= min_vis) and V("hip")[b] >= min_vis
+        top_seen = ((bar_ok[b] if use_bar_for_torso else V("shoulder")[b] >= min_vis) and V("hip")[b] >= min_vis
+                    and not hip_hidden)
         ba_bottom = float(np.median(back_angle[bot]))
         m["back_angle_bottom_deg"] = Metric(
             ba_bottom, "degrees", b, observed=bool(top_seen),
-            detail=f"Torso line ({torso_label}) is {ba_bottom:.0f} degrees from the floor at the bottom.",
+            detail=f"Torso line ({torso_label}) is {ba_bottom:.0f} degrees from the floor at the bottom."
+                   + (hidden_note if hip_hidden else ""),
         )
 
         # hip drive: how much more upright the torso gets in the first third of the ascent
-        target_y = hip_y[b] - rom / 3.0
-        after = np.where(hip_y[b:e + 1] <= target_y)[0]
+        target_y = sig[b] - rom / 3.0
+        after = np.where(sig[b:e + 1] <= target_y)[0]
         if after.size:
             a = b + int(after[0])
             change = back_angle[a] - ba_bottom
             m["back_angle_change_early_ascent_deg"] = Metric(
                 change, "degrees", a, observed=bool(top_seen),
-                detail=f"While the hips rose the first third of the way (frame {b} to {a}), the torso turned "
-                       f"{abs(change):.0f} degrees {'more upright' if change > 0 else 'more forward'}.",
+                detail=f"In the first third of the way up (frame {b} to {a}), the torso turned "
+                       f"{abs(change):.0f} degrees {'more upright' if change > 0 else 'more forward'}."
+                       + (hidden_note if hip_hidden else ""),
                 extra={"from_frame": b, "to_frame": a},
             )
         else:
@@ -294,18 +361,18 @@ def analyse(landmarks: np.ndarray, bar: dict, fps: float, frame_size: tuple[int,
         # their travel), where heels come up if they do. A median, not a
         # maximum, so one jittery frame can't fail the rep.
         stand_heel = np.nanmedian(np.r_[heel_y[max(0, s0 - 3):s0 + 4], heel_y[max(0, e - 3):e + 4]])
-        low = np.where(hip_y[sl] >= hip_y[b] - 0.3 * rom)[0] + s0
+        low = np.where(sig[sl] >= sig[b] - 0.3 * rom)[0] + s0
         lift_px = float(np.nanmedian(stand_heel - heel_y[low]))
-        heel_seen = feet_seen and (V("heel")[sl] >= min_vis).mean() >= 0.8
+        heel_seen = feet_ok and (V("heel")[sl] >= min_vis).mean() >= 0.8
         cm_h = max(lift_px, 0) / px_per_cm if px_per_cm else None
         m["heel_lift"] = Metric(
-            max(lift_px, 0.0) / foot_len, "foot lengths", b, observed=bool(heel_seen),
+            max(lift_px, 0.0) / fl, "foot lengths", b, observed=bool(heel_seen),
             detail=f"Around the bottom the heel rose {max(lift_px, 0):.0f} px"
-                   + (f" (about {cm_h:.1f} cm)" if cm_h is not None else "") + " compared with standing.",
+                   + (f" (about {cm_h:.1f} cm)" if cm_h is not None else "") + " compared with standing." + feet_note,
         )
 
-        # pause at the bottom: time the hips stay within 5% of their lowest point
-        near = hip_y[sl] >= hip_y[b] - 0.05 * rom
+        # pause at the bottom: time the bar (or hips) stay within 5% of their lowest point
+        near = sig[sl] >= sig[b] - 0.05 * rom
         k = b - s0
         lo = k
         while lo > 0 and near[lo - 1]:
@@ -315,14 +382,24 @@ def analyse(landmarks: np.ndarray, bar: dict, fps: float, frame_size: tuple[int,
             hi += 1
         pause = (hi - lo + 1) / fps
         m["bottom_pause_s"] = Metric(pause, "seconds", b, observed=True,
-                                     detail=f"Hips stayed within 5% of their lowest point for {pause:.2f} s.")
+                                     detail=f"The {'bar' if bar_reps else 'hips'} stayed within 5% of the lowest point "
+                                            f"for {pause:.2f} s.")
 
         # knee vs toe at the bottom
-        knee_toe = float(np.median(fwd * (knee_x[bot] - toe_med[0]) / foot_len))
+        knee_toe = float(np.median(fwd * (knee_x[bot] - toe_r[0]) / fl))
         m["knee_ahead_of_toe"] = Metric(
-            knee_toe, "foot lengths", b, observed=bool(V("knee")[b] >= min_vis and feet_seen),
-            detail=f"Knee joint is {abs(knee_toe):.2f} foot lengths {'in front of' if knee_toe > 0 else 'behind'} the toe point.",
+            knee_toe, "foot lengths", b, observed=bool(V("knee")[b] >= min_vis and feet_ok and not knee_hidden),
+            detail=f"Knee joint is {abs(knee_toe):.2f} foot lengths {'in front of' if knee_toe > 0 else 'behind'} the toe point."
+                   + feet_note,
         )
+
+        # Physically impossible values mean the tracking failed (seen when a
+        # rack crossbar hid the hips and knees): don't judge them.
+        for key, (lo_v, hi_v) in PLAUSIBLE.items():
+            mm = m.get(key)
+            if mm is not None and mm.value is not None and not (lo_v <= mm.value <= hi_v):
+                mm.observed = False
+                mm.detail += " This value is physically implausible, so it is treated as a tracking error and not judged."
 
         reps.append({
             "index": i,
@@ -330,6 +407,12 @@ def analyse(landmarks: np.ndarray, bar: dict, fps: float, frame_size: tuple[int,
             "bottom_window": [int(bot.min()), int(bot.max())],
             "start_s": round(s0 / fps, 2), "bottom_s": round(b / fps, 2), "end_s": round(e / fps, 2),
             "bar_detected_ratio": round(det_ratio, 2),
+            "rom_px": round(float(hip_rom), 1),
+            "rep_signal": "bar" if bar_reps else "hips",
+            "knee_angle_bottom": round(float(np.median(knee_angle[bot])), 1),
+            "feet": {"heel": [round(float(v), 1) for v in (h_r if feet_ok else heel_med)],
+                     "toe": [round(float(v), 1) for v in toe_r],
+                     "midfoot": [round(float(v), 1) for v in mid_r], "seen": feet_ok},
             "metrics": {k: v.to_dict() for k, v in m.items()},
         })
 
@@ -380,33 +463,48 @@ def analyse(landmarks: np.ndarray, bar: dict, fps: float, frame_size: tuple[int,
     }
 
 
-def _find_reps(hip_y: np.ndarray, thigh: float, fps: float) -> list[tuple[int, int, int]]:
+def _find_reps(hip_y: np.ndarray, thigh: float, fps: float, knee_angle: np.ndarray | None = None,
+               rejected: list | None = None) -> list[tuple[int, int, int]]:
     """Each rep = (start, bottom, end) frames. A rep must drop the hips by at
-    least 0.4 thigh lengths and come back up within the video."""
+    least 0.4 thigh lengths, bend the knees (a squat, not a tracking glitch that
+    only moves the hip point), and come back up within the video."""
     peaks, _ = find_peaks(hip_y, prominence=0.4 * thigh, distance=max(1, int(0.6 * fps)))
     reps = []
     prev_end = 0
+    look = int(3.0 * fps)  # a squat goes down (or up) in under ~3 s, even a slow one
     for p in peaks:
-        lo_seg = hip_y[prev_end:p + 1]
-        top_before = prev_end + int(np.argmin(lo_seg))
+        lo0 = max(prev_end, p - look)
+        top_before = lo0 + int(np.argmin(hip_y[lo0:p + 1]))
         nxt = peaks[peaks > p]
-        hi_lim = int(nxt[0]) if nxt.size else len(hip_y) - 1
+        hi_lim = min(int(nxt[0]) if nxt.size else len(hip_y) - 1, p + look)
         top_after = p + int(np.argmin(hip_y[p:hi_lim + 1]))
         rom = hip_y[p] - max(hip_y[top_before], hip_y[top_after])
         if rom < 0.4 * thigh:
             continue
         thr_s = hip_y[top_before] + 0.05 * (hip_y[p] - hip_y[top_before])
         thr_e = hip_y[top_after] + 0.05 * (hip_y[p] - hip_y[top_after])
-        s = top_before + int(np.argmax(hip_y[top_before:p + 1] > thr_s))
+        # Start = the last moment the hips were still near the top before this
+        # descent (searching back from the bottom), so a walk-out from the rack
+        # or standing around before the rep is not counted as part of it.
+        still_top = np.where(hip_y[top_before:p + 1] <= thr_s)[0]
+        s = top_before + int(still_top[-1]) if still_top.size else top_before
         after = np.where(hip_y[p:top_after + 1] <= thr_e)[0]
         if not after.size:
             continue  # never came back up inside the video
         e = p + int(after[0])
-        s = max(s - 1, top_before)
         # A real rep takes time to go down and come up; a sub-0.3 s "dip" is a
         # tracking glitch (seen when the feet were cropped out of the picture).
         if (p - s) / fps < 0.3 or (e - p) / fps < 0.3:
             continue
+        # A squat bends the knees: clearly bent at the bottom, nearly straight at
+        # the top. A hip drop without that is the hip point jumping (seen when a
+        # rack crossbar hid the hips).
+        if knee_angle is not None and np.isfinite(knee_angle[p]):
+            top_knee = max(np.nanmax(knee_angle[s:s + 3]), np.nanmax(knee_angle[max(e - 2, p):e + 1]))
+            if knee_angle[p] > 135 or top_knee < 150:
+                if rejected is not None and rom >= 0.6 * thigh:
+                    rejected.append(p)
+                continue
         reps.append((s, p, e))
         prev_end = e
     return reps
