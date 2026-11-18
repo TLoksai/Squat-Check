@@ -99,6 +99,12 @@ def skill_text() -> str:
     return (SKILL_DIR / "criteria.yaml").read_text(encoding="utf-8")
 
 
+@app.get("/api/skill.json")
+def skill_json() -> dict:
+    """The rulebook parsed, for the in-app rulebook viewer (read fresh each time)."""
+    return load_skill()["criteria"]
+
+
 @app.post("/api/jobs")
 async def create_job(file: UploadFile, request: Request) -> dict:
     name = file.filename or "video"

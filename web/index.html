@@ -263,14 +263,46 @@
     <span>Squat Check · checks follow the supplied reference "The Squat" (reference pages 1-35). Not medical advice.</span>
   </footer>
 
-  <dialog id="rulebook-dialog">
-    <div class="dialog-head">
-      <h2><svg class="ic"><use href="#i-book"/></svg> The rulebook</h2>
-      <button class="icon-btn" type="button" id="rulebook-close" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
+  <dialog id="rulebook-dialog" aria-labelledby="rb-title">
+    <div class="rb">
+      <header class="rb-head">
+        <span class="rb-ic"><svg class="ic"><use href="#i-book"/></svg></span>
+        <div class="rb-titles">
+          <h2 id="rb-title">The rulebook</h2>
+          <p class="muted small" id="rb-source">Loading…</p>
+        </div>
+        <button class="icon-btn" type="button" id="rulebook-close" aria-label="Close the rulebook"><svg class="ic"><use href="#i-x"/></svg></button>
+      </header>
+
+      <div class="rb-intro">
+        <div class="rb-pill"><svg class="ic"><use href="#i-info"/></svg>
+          <span>Every check in a report comes from this rulebook (<code>skill/squat-standard/criteria.yaml</code>).
+            Edit a rule there, then press <b>Re-check with rulebook</b> on a report. The result updates without re-processing the video.</span></div>
+        <div class="rb-legend">
+          <span><span class="tag doc">document</span> number or rule taken from the reference</span>
+          <span><span class="tag interp">app interpretation</span> the reference gives no number; this is the app's reading of it</span>
+        </div>
+      </div>
+
+      <div class="rb-bar">
+        <div class="rb-tabs" role="tablist" aria-label="Rulebook sections">
+          <button role="tab" data-rb="checked" aria-selected="true">Checked from video <span class="rb-count" id="rb-n-checked"></span></button>
+          <button role="tab" data-rb="na" aria-selected="false">Needs another angle <span class="rb-count" id="rb-n-na"></span></button>
+          <button role="tab" data-rb="settings" aria-selected="false">App settings</button>
+          <button role="tab" data-rb="raw" aria-selected="false">Raw file</button>
+        </div>
+        <label class="rb-search"><svg class="ic"><use href="#i-target"/></svg>
+          <input id="rb-search" type="search" placeholder="Search rules, e.g. depth, knees, p. 22" aria-label="Search the rulebook"></label>
+      </div>
+
+      <div class="rb-body">
+        <div data-rb-panel="checked" id="rb-checked"></div>
+        <div data-rb-panel="na" id="rb-na" hidden></div>
+        <div data-rb-panel="settings" id="rb-settings" hidden></div>
+        <div data-rb-panel="raw" hidden><pre id="rulebook-text">Loading…</pre></div>
+        <p class="rb-empty muted" id="rb-empty" hidden>No rules match your search.</p>
+      </div>
     </div>
-    <p class="muted small">Every check comes from <code>skill/squat-standard/criteria.yaml</code>. Edit a rule there, then press
-      <b>Re-check with rulebook</b> on a report: the result updates without re-processing the video.</p>
-    <pre id="rulebook-text">Loading…</pre>
   </dialog>
 
   <div class="toast" id="toast" role="status" hidden></div>

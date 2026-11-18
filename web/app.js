@@ -554,12 +554,118 @@
     await fetch(`api/jobs/${state.jobId}`, { method: "DELETE" }).catch(() => {});
     restart(); toast("Video and analysis deleted");
   });
+  // ------------------------------------------------------------ rulebook viewer
   const dlg = $("#rulebook-dialog");
-  $("#btn-rulebook").addEventListener("click", async () => {
-    dlg.showModal();
-    try { $("#rulebook-text").textContent = await (await fetch("api/skill")).text(); }
-    catch { $("#rulebook-text").textContent = "Couldn't load the rulebook."; }
-  });
+  const shortUnit = (u) => (String(u || "").match(/^(thigh lengths|foot lengths|degrees|seconds)/) || [])[1] || String(u || "").split(" (")[0];
+  const fmtTarget = (t = {}, unit) => {
+    const u = shortUnit(unit);
+    if (t.min != null && t.max != null) return `between ${t.min} and ${t.max} ${u}`;
+    if (t.min != null) return `more than ${t.min} ${u}`;
+    return `at most ${t.max} ${u}`;
+  };
+  const PHASE = { bottom: "At the bottom of each rep", whole_rep: "Across the whole rep", early_ascent: "Start of the way up" };
+  const SETTINGS = {
+    video_quality: ["Video quality gate", "Videos below these limits are rejected with an explanation instead of being measured.", {
+      min_leg_px: ["Smallest lifter size", "Hip-to-ankle length in the picture", "px"],
+      min_brightness: ["Darkest allowed", "Average grey level around the lifter (0-255)", ""],
+      min_sharpness: ["Blurriest allowed", "Sharpness score around the lifter", ""],
+      warn_sharpness: ["Blur warning below", "Shows a 'less precise' warning", ""],
+    }],
+    estimates: ["Measurement assumptions", "App choices used to turn body points into the points the reference talks about. None of these are document rules.", {
+      min_landmark_visibility: ["Body-point confidence needed", "Below this a point counts as not seen", ""],
+      min_bar_detection_ratio: ["Bar must be measured in", "Share of a rep's frames; below this, bar checks aren't judged", "%"],
+      foot_thigh_ratio: ["Foot / thigh length", "Used only when the feet are out of the picture", "×"],
+      hip_width_thigh_ratio: ["Hip width / thigh length", "Used to estimate the camera angle", "×"],
+      plate_to_foot_lateral_foot_lengths: ["Plate-to-foot sideways gap", "Feeds the camera-angle allowance for bar over midfoot", "foot lengths"],
+      plate_perspective_factor: ["Plate perspective factor", "The plate is nearer the camera; widens the bar-over-midfoot margin", "×"],
+    }],
+  };
+  const pageChips = (sources) => sources.map((s) =>
+    `<span class="page-ref" title="${esc(s.section)}">${icon("book")}p. ${esc(s.page)} · ${esc(s.section)}</span>`).join("");
+  const searchText = (c) => [c.id, c.title, c.requirement, c.reason, c.check?.unit, c.check?.note,
+    ...(c.sources || []).flatMap((s) => [`p. ${s.page}`, `p.${s.page}`, s.section]),
+    ...(c.cues_if_not_met || []).map((q) => q.text)].filter(Boolean).join(" ").toLowerCase();
+
+  function ruleCard(c) {
+    const k = c.check || {};
+    const tag = k.source === "document" ? `<span class="tag doc">document</span>` : `<span class="tag interp">app interpretation</span>`;
+    const cues = c.cues_if_not_met || [];
+    return `<article class="rule checked" data-search="${esc(searchText(c))}">
+      <div class="rule-head"><span class="st-ic">${icon("check")}</span>
+        <div><h3>${esc(c.title)}</h3><span class="rule-id">${esc(c.id)}</span></div></div>
+      <p class="rule-req">${esc(c.requirement)}</p>
+      <div class="rule-pages">${pageChips(c.sources || [])}</div>
+      <div class="rule-target">
+        <div class="kv"><span class="kv-l">Target</span><b>${esc(fmtTarget(k.target, k.unit))}</b>${tag}</div>
+        <div class="kv"><span class="kv-l">Margin</span><b>± ${esc(k.uncertainty)} ${esc(shortUnit(k.unit))}</b><span class="kv-note">closer than this to a limit = “can't assess”</span></div>
+        <div class="kv"><span class="kv-l">Checked</span><b>${esc(PHASE[c.phase] || c.phase || "")}</b></div>
+      </div>
+      ${k.note ? `<details><summary>Where the number comes from</summary><p>${esc(k.note)}</p></details>` : ""}
+      ${cues.length ? `<details><summary>Coaching tips used when it's not met (${cues.length})</summary><ul class="cue-list">${
+        cues.map((q) => `<li>${esc(q.text)} <span class="page-ref">${icon("book")}p. ${esc(q.page)}</span></li>`).join("")}</ul></details>` : ""}
+    </article>`;
+  }
+  function naCard(c) {
+    return `<article class="rule na" data-search="${esc(searchText(c))}">
+      <div class="rule-head"><span class="st-ic">${icon("camera")}</span>
+        <div><h3>${esc(c.title)}</h3><span class="rule-id">${esc(c.id)}</span></div></div>
+      <p class="rule-req">${esc(c.requirement)}</p>
+      <div class="rule-why">${icon("info")}<span><b>Why it isn't checked:</b> ${esc(c.reason)}</span></div>
+      <div class="rule-pages">${pageChips(c.sources || [])}</div>
+    </article>`;
+  }
+  function settingsHtml(rb) {
+    return Object.entries(SETTINGS).map(([key, [title, blurb, labels]]) => {
+      const vals = rb[key] || {};
+      const rows = Object.entries(vals).map(([k, v]) => {
+        const [lbl, hint, unit] = labels[k] || [k, "", ""];
+        const shown = unit === "%" ? `${Math.round(v * 100)}%` : unit === "×" ? `${v}×` : unit ? `${v} ${unit}` : String(v);
+        return `<tr><td><b>${esc(lbl)}</b><br><span class="muted small">${esc(hint)}</span> <code>${esc(k)}</code></td><td>${esc(shown)}</td></tr>`;
+      }).join("");
+      return `<section class="settings-group"><h3>${esc(title)}</h3><p>${esc(blurb)}</p><table class="settings-table">${rows}</table></section>`;
+    }).join("");
+  }
+  function renderRulebook(rb) {
+    const src = rb.source || {};
+    $("#rb-source").textContent = [src.title, src.page_numbering, `rulebook v${rb.version}`].filter(Boolean).join(" · ");
+    const checked = (rb.criteria || []).filter((c) => c.assessable), na = (rb.criteria || []).filter((c) => !c.assessable);
+    $("#rb-n-checked").textContent = checked.length;
+    $("#rb-n-na").textContent = na.length;
+    $("#rb-checked").innerHTML = checked.map(ruleCard).join("");
+    $("#rb-na").innerHTML = na.map(naCard).join("");
+    $("#rb-settings").innerHTML = settingsHtml(rb);
+    applyRbSearch();
+  }
+  let rbTab = "checked";
+  function selectRbTab(name) {
+    rbTab = name;
+    $$(".rb-tabs [data-rb]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.rb === name)));
+    $$("[data-rb-panel]").forEach((p) => (p.hidden = p.dataset.rbPanel !== name));
+    $(".rb-search").hidden = name === "settings" || name === "raw";
+    applyRbSearch();
+  }
+  function applyRbSearch() {
+    const q = $("#rb-search").value.trim().toLowerCase();
+    let shown = 0, total = 0;
+    $$(`[data-rb-panel="${rbTab}"] .rule`).forEach((card) => {
+      total++;
+      const hit = !q || q.split(/\s+/).every((w) => card.dataset.search.includes(w));
+      card.hidden = !hit; if (hit) shown++;
+    });
+    $("#rb-empty").hidden = !(total && !shown);
+  }
+  async function openRulebook() {
+    if (!dlg.open) dlg.showModal();
+    selectRbTab(rbTab);
+    try {
+      const [rb, raw] = await Promise.all([fetch("api/skill.json").then((r) => r.json()), fetch("api/skill").then((r) => r.text())]);
+      renderRulebook(rb);
+      $("#rulebook-text").textContent = raw;
+    } catch { $("#rb-source").textContent = "Couldn't load the rulebook."; }
+  }
+  $("#btn-rulebook").addEventListener("click", openRulebook);
+  $(".rb-tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-rb]"); if (b) selectRbTab(b.dataset.rb); });
+  $("#rb-search").addEventListener("input", applyRbSearch);
   $("#rulebook-close").addEventListener("click", () => dlg.close());
   dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
 
