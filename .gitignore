@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/
+.pytest_cache/
+.claude/
+# pose model: download it (see README), ~9 MB
+models/
+# videos are not committed: get the common sample with `python -m tools.get_sample`
+# and the difficult clips with `python -m tools.make_hard_videos`
+samples/**/*.mp4

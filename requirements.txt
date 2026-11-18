@@ -1,0 +1,15 @@
+fastapi==0.163.2
+uvicorn[standard]==0.54.0
+python-multipart==0.0.34
+mediapipe==1.2.3
+opencv-python-headless==5.1.0.95
+numpy==2.5.5
+scipy==1.18.1
+anthropic==2.10.0
+PyYAML==6.0.3
+pydantic==2.14.3
+imageio-ffmpeg==0.8.1
+python-dotenv==1.2.4
+# dev / evidence tools
+yt-dlp==2026.10.26
+pytest==9.2.0
