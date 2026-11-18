@@ -31,7 +31,7 @@ overlay is drawn per frame on a canvas (`requestVideoFrameCallback`).
 | Bar position | OpenCV, plate circle + appearance tracking | From the side the bar end *is* a circle; no training needed |
 | Reps, bottoms, angles, distances | Deterministic geometry (`analysis.py`) | Reproducible; explainable in an interview |
 | Pass / fail / can't assess | `rules.py` reading `criteria.yaml` | The document drives the result; editable without code |
-| Explanations, tips, summary | Claude (`claude-opus-5-5`) with the skill as system prompt | Plain-language coaching grounded in the document |
+| Explanations, tips, summary | Gemini (newest flash model) or Claude (`claude-opus-5-5`), with the skill as system prompt | Plain-language coaching grounded in the document; provider is swappable because the skill, schema and validator are shared |
 
 The model never decides a result. Its output is validated: feedback for a
 (rep, check) that doesn't exist, or a page number the criterion doesn't cite,
@@ -86,12 +86,14 @@ view, too small / dark / blurry, or no complete rep.
 * **Per video, compute:** about 25-30 s of CPU for an 8 s clip on a laptop
   (pose ~18 s for two passes, bar ~2 s, ffmpeg ~5 s). Scales roughly linearly
   with video length.
-* **Per video, AI coach (estimate):** system prompt ≈ 5.5k tokens (skill,
-  cached), results ≈ 4k tokens, output ≈ 2-4k tokens → roughly **$0.08-0.12 per
-  video** on Claude Opus 5.5 ($4 / $20 per M tokens). Actual token usage is
-  shown in the report ("How this was measured") once an API key is set. Haiku
-  would cut this ~40×; I kept the most capable model because the coach's job
-  is careful grounding, and the cost per video is already small.
+* **Per video, AI coach (estimate):** system prompt ≈ 5.5k tokens (the skill),
+  results ≈ 4k tokens, output ≈ 2-4k tokens. On Claude Opus 5.5 ($4 / $20 per
+  M tokens) that is roughly **$0.08-0.12 per video**; a Gemini flash model is
+  typically far cheaper per token (check Google's current price list). Actual
+  token usage is shown in the report ("How this was measured").
+* **Why two providers:** the coach was written for Claude; the build used a
+  Gemini key because that was the key available. The skill, output schema and
+  validator are shared, so switching is one environment variable.
 
 ## Key trade-offs
 

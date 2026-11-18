@@ -213,8 +213,9 @@
     const c = ev.counts || {};
     $("#counts").innerHTML = ["meets", "does_not_meet", "cannot_assess"].map((k) =>
       `<span class="chip ${k}">${RESULT_ICON[k]} ${c[k] || 0} ${RESULT_LABEL[k].toLowerCase()}</span>`).join("");
-    $("#coach-source").textContent = fb.source === "claude"
-      ? "Feedback written by the AI coach (Claude) from the rulebook"
+    const aiName = { claude: "Claude", gemini: "Gemini" }[fb.source];
+    $("#coach-source").textContent = aiName
+      ? `Feedback written by the AI coach (${aiName}) from the rulebook`
       : (fb.note || "Feedback taken directly from the rulebook");
     $("#summary-text").textContent = fb.overall_summary || "";
     $("#priorities").innerHTML = (fb.top_priorities || []).map((p, i) => `
@@ -258,12 +259,14 @@
       how.push(`Camera angle check: left and right hips appear ${(a.camera.hip_separation).toFixed(2)} thigh lengths apart (0 = perfect side view). This widens the uncertainty of the bar-over-midfoot check by ${(a.camera.parallax_foot_lengths).toFixed(2)} foot lengths.`);
     }
     for (const i of a.issues || []) how.push(`⚠ ${esc(i.message)}`);
-    how.push(`Results: decided by fixed geometry rules from <code>criteria.yaml</code> (rulebook v${esc(res.skill.version)}). ${fb.source === "claude" ? `The AI coach (${esc(fb.model || "Claude")}) only writes the explanations and tips; it cannot change a result.` : "The AI coach did not run, so tips come straight from the rulebook."}`);
+    how.push(`Results: decided by fixed geometry rules from <code>criteria.yaml</code> (rulebook v${esc(res.skill.version)}). ${aiName ? `The AI coach (${esc(fb.model || aiName)}) only writes the explanations and tips; it cannot change a result.` : "The AI coach did not run, so tips come straight from the rulebook."}`);
     const t = res.timings;
     how.push(`Timing: prepare ${t.prepare_s}s, body ${t.pose_s}s, bar ${t.bar_s}s, coach ${t.coach_s}s.`);
     if (fb.usage) {
-      const cost = (fb.usage.input_tokens * 4 + fb.usage.output_tokens * 20) / 1e6;
-      how.push(`AI coach usage: ${fb.usage.input_tokens} input tokens (${fb.usage.cache_read_input_tokens} from cache), ${fb.usage.output_tokens} output tokens, about $${cost.toFixed(3)} at list price.`);
+      // list price shown only for the default Claude model; other models: tokens only
+      const cost = fb.source === "claude" && String(fb.model || "").startsWith("claude-opus-5-5")
+        ? `, about $${((fb.usage.input_tokens * 4 + fb.usage.output_tokens * 20) / 1e6).toFixed(3)} at list price` : "";
+      how.push(`AI coach usage: ${fb.usage.input_tokens} input tokens (${fb.usage.cache_read_input_tokens} from cache), ${fb.usage.output_tokens} output tokens${cost}.`);
     }
     if (fb.validation?.dropped_items) how.push(`The coach's output had ${fb.validation.dropped_items} item(s) that weren't grounded in the rulebook; they were replaced with rulebook text.`);
     $("#how-body").innerHTML = `<ul>${how.map((x) => `<li>${x}</li>`).join("")}</ul>`;

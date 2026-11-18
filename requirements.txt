@@ -6,6 +6,7 @@ opencv-python-headless==5.1.0.95
 numpy==2.5.5
 scipy==1.18.1
 anthropic==2.10.0
+google-genai==3.5.0
 PyYAML==6.0.3
 pydantic==2.14.3
 imageio-ffmpeg==0.8.1

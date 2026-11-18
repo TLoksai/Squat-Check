@@ -72,10 +72,25 @@ def test_validator_keeps_grounded_feedback():
     assert clean["findings_feedback"][0]["feedback"] == "Shove your knees out (p. 33)"
 
 
+KEYS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "GEMINI_API_KEY", "GOOGLE_API_KEY", "COACH_PROVIDER")
+
+
 def test_rulebook_fallback_without_key(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    for k in KEYS:
+        monkeypatch.delenv(k, raising=False)
     skill, ev = _evaluation()
     out = agent.coach(skill, ev, {"reps": [], "issues": []})
     assert out["source"] == "rulebook"
     assert out["top_priorities"][0]["criterion_id"] == "depth"
+
+
+def test_provider_choice(monkeypatch):
+    for k in KEYS:
+        monkeypatch.delenv(k, raising=False)
+    assert agent.provider() == "rulebook"
+    monkeypatch.setenv("GEMINI_API_KEY", "test-not-a-real-key")
+    assert agent.provider() == "gemini"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-not-a-real-key")
+    assert agent.provider() == "claude"
+    monkeypatch.setenv("COACH_PROVIDER", "gemini")
+    assert agent.provider() == "gemini"

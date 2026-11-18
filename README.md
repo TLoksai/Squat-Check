@@ -22,10 +22,10 @@ upload ─► normalise (ffmpeg) ─► body points ×2 (MediaPipe, normal + mir
 ```
 
 * The **rules decide the results**, with fixed geometry and the numbers in
-  [`criteria.yaml`](skill/squat-standard/criteria.yaml). The **AI coach
-  (Claude)** reads the same skill and writes the explanations and tips. It
-  cannot change a result, and anything it cites that isn't in the skill is
-  dropped.
+  [`criteria.yaml`](skill/squat-standard/criteria.yaml). The **AI coach**
+  (Gemini or Claude, whichever key is set) reads the same skill and writes the
+  explanations and tips. It cannot change a result, and anything it cites that
+  isn't in the skill is dropped.
 * A value close to a limit, within the measurement uncertainty, is reported as
   **cannot assess**, not guessed. The uncertainty grows when the two pose passes
   disagree, when the camera isn't square to the lifter, or when points were
@@ -52,17 +52,20 @@ mkdir models
 curl -L -o models/pose_landmarker_full.task https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task
 ```
 
-Configure the AI coach (optional; without a key the app still works and labels
-the tips "rulebook tips"):
+Configure the AI coach with **one** of the keys below (optional; without a key
+the app still works and labels the tips "rulebook tips"):
 
 ```bash
-cp .env.example .env      # then put your key in ANTHROPIC_API_KEY
+cp .env.example .env      # then fill in GEMINI_API_KEY or ANTHROPIC_API_KEY
 ```
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | for the AI coach | Claude API key |
-| `CLAUDE_MODEL` | no | coach model, default `claude-opus-5-5` |
+| `GEMINI_API_KEY` | one of the two keys | Google Gemini API key (coach = Gemini) |
+| `GEMINI_MODEL` | no | Gemini model; default: newest stable `gemini-*-flash` the key can use |
+| `ANTHROPIC_API_KEY` | one of the two keys | Claude API key (coach = Claude; wins if both are set) |
+| `CLAUDE_MODEL` | no | Claude model, default `claude-opus-5-5` |
+| `COACH_PROVIDER` | no | force `gemini`, `claude` or `rulebook` |
 
 Get the assignment's common sample (optional, enables the "Try the common
 sample video" button) and start the server:

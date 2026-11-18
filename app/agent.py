@@ -1,4 +1,4 @@
-"""The embedded coach: Claude reads the skill and writes the feedback.
+"""The embedded coach: an LLM reads the skill and writes the feedback.
 
 The skill (SKILL.md + criteria.yaml) is the system prompt, so the coach works
 from the reference document, not from general squat knowledge. Results are
@@ -6,8 +6,13 @@ fixed before the coach runs; the coach only explains them. Its output is
 checked: feedback for a (rep, criterion) that doesn't exist, or a page number
 the criterion doesn't cite, is dropped and replaced by the rulebook text.
 
-If no API key is set or the call fails, the app falls back to the rulebook
-cues directly and labels the feedback as "rulebook tips (AI coach offline)".
+Providers (same skill, same output schema, same validator):
+  - Gemini, when GEMINI_API_KEY is set (model: GEMINI_MODEL, else newest flash)
+  - Claude, when ANTHROPIC_API_KEY is set (model: CLAUDE_MODEL, default claude-opus-5-5)
+  COACH_PROVIDER=gemini|claude|rulebook forces one; with both keys, Claude wins.
+
+If no key is set or the call fails, the app falls back to the rulebook cues
+directly and labels the feedback as "rulebook tips (AI coach offline)".
 """
 
 from __future__ import annotations
@@ -17,9 +22,13 @@ import os
 import re
 from typing import Any
 
+from pathlib import Path
+
 import anthropic
+from dotenv import load_dotenv
 
 MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-5-5")
+_ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
 SCHEMA = {
     "type": "object",
@@ -139,15 +148,99 @@ def _validate(out: dict, evaluation: dict, skill: dict) -> dict:
     return out
 
 
-def coach(skill: dict, evaluation: dict, analysis: dict) -> dict[str, Any]:
-    if not (os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")):
-        return rulebook_feedback(evaluation)
+def provider() -> str:
+    """Which coach runs: COACH_PROVIDER if set, else whichever key is present."""
+    p = os.getenv("COACH_PROVIDER", "").strip().lower()
+    if p in ("claude", "gemini", "rulebook"):
+        return p
+    if os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN"):
+        return "claude"
+    if os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"):
+        return "gemini"
+    return "rulebook"
 
+
+def _user_prompt(evaluation: dict, analysis: dict) -> str:
+    return ("Results for this video (JSON). Write the feedback as the skill describes.\n\n"
+            + json.dumps(_compact_results(evaluation, analysis), indent=1))
+
+
+def coach(skill: dict, evaluation: dict, analysis: dict) -> dict[str, Any]:
+    load_dotenv(_ENV_FILE)  # pick up a key added to .env after the server started
+    p = provider()
+    if p == "gemini":
+        return _coach_gemini(skill, evaluation, analysis)
+    if p == "claude":
+        return _coach_claude(skill, evaluation, analysis)
+    return rulebook_feedback(evaluation)
+
+
+# ------------------------------------------------------------------ Gemini
+
+def _gemini_model(client) -> str:
+    """GEMINI_MODEL if set; else the newest stable 'flash' model this key can use."""
+    if os.getenv("GEMINI_MODEL"):
+        return os.environ["GEMINI_MODEL"]
+    try:
+        names = []
+        for m in client.models.list():
+            name = (m.name or "").removeprefix("models/")
+            actions = getattr(m, "supported_actions", None) or []
+            if (re.fullmatch(r"gemini-\d+(\.\d+)?-flash", name)
+                    and (not actions or "generateContent" in actions)):
+                names.append(name)
+        if names:
+            return max(names, key=lambda n: float(re.search(r"\d+(\.\d+)?", n).group()))
+    except Exception:
+        pass
+    return "gemini-2.5-flash"
+
+
+def _coach_gemini(skill: dict, evaluation: dict, analysis: dict) -> dict[str, Any]:
+    from google import genai
+    from google.genai import errors as gerrors
+    from google.genai import types
+
+    try:
+        client = genai.Client()  # reads GEMINI_API_KEY (or GOOGLE_API_KEY)
+        model = _gemini_model(client)
+        base = dict(system_instruction=_system_prompt(skill), response_mime_type="application/json")
+        try:
+            resp = client.models.generate_content(
+                model=model, contents=_user_prompt(evaluation, analysis),
+                config=types.GenerateContentConfig(**base, response_json_schema=SCHEMA))
+        except gerrors.ClientError as e:
+            if getattr(e, "code", None) != 400:
+                raise
+            # Schema not accepted by this model: ask for JSON only; our validator checks the shape.
+            resp = client.models.generate_content(
+                model=model, contents=_user_prompt(evaluation, analysis),
+                config=types.GenerateContentConfig(**base))
+        if not resp.text:
+            out = rulebook_feedback(evaluation)
+            out["note"] = "The AI coach returned no text (possibly blocked); showing rulebook tips."
+            return out
+        out = _validate(json.loads(resp.text), evaluation, skill)
+        out["source"] = "gemini"
+        out["model"] = model
+        u = resp.usage_metadata
+        if u:
+            out["usage"] = {"input_tokens": u.prompt_token_count or 0,
+                            "output_tokens": (u.candidates_token_count or 0) + (getattr(u, "thoughts_token_count", 0) or 0),
+                            "cache_read_input_tokens": getattr(u, "cached_content_token_count", 0) or 0}
+        return out
+    except (gerrors.APIError, json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
+        out = rulebook_feedback(evaluation)
+        out["note"] = f"AI coach unavailable ({type(e).__name__}); showing rulebook tips."
+        return out
+
+
+# ------------------------------------------------------------------ Claude
+
+def _coach_claude(skill: dict, evaluation: dict, analysis: dict) -> dict[str, Any]:
     client = anthropic.Anthropic()
     system = [{"type": "text", "text": _system_prompt(skill), "cache_control": {"type": "ephemeral"}}]
-    messages = [{"role": "user", "content":
-                 "Results for this video (JSON). Write the feedback as the skill describes.\n\n"
-                 + json.dumps(_compact_results(evaluation, analysis), indent=1)}]
+    messages = [{"role": "user", "content": _user_prompt(evaluation, analysis)}]
     output_config = {"effort": "medium", "format": {"type": "json_schema", "schema": SCHEMA}}
 
     try:
