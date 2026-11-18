@@ -1,82 +1,82 @@
-/* Squat Check front end: upload -> progress -> annotated video + findings.
+/* Squat Check front end: upload -> progress -> report (annotated video + findings).
    No framework: three views, a polling loop, and a canvas drawn over the video. */
 (() => {
   "use strict";
 
-  const $ = (sel) => document.querySelector(sel);
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const RESULT_LABEL = { meets: "Meets", does_not_meet: "Does not meet", cannot_assess: "Can't assess" };
-  const RESULT_ICON = { meets: "✓", does_not_meet: "✗", cannot_assess: "?" };
+  const icon = (name, cls = "") => `<svg class="ic ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const RES = {
+    does_not_meet: { group: "Needs work", short: "Does not meet", icon: "x", tile: "bad" },
+    meets: { group: "Looks good", short: "Meets", icon: "check", tile: "good" },
+    cannot_assess: { group: "Couldn't check", short: "Can't assess", icon: "help", tile: "unk" },
+  };
+  const ORDER = ["does_not_meet", "meets", "cannot_assess"];
   const STAGE_ORDER = ["upload", "prepare", "pose", "bar", "measure", "coach"];
 
   let config = null;
-  let state = { jobId: null, result: null, frames: [], fps: 30, n: 0, size: [720, 1280], focus: null, selected: null };
+  let state = freshState();
+  function freshState() {
+    return { jobId: null, result: null, frames: [], fps: 30, n: 0, size: [720, 1280], focus: null, selected: null,
+             byKey: new Map(), fbMap: new Map(), repFilter: "all" };
+  }
 
   // ------------------------------------------------------------ views
   function show(view) {
     for (const v of ["upload", "progress", "result"]) $(`#view-${v}`).hidden = v !== view;
     window.scrollTo({ top: 0 });
   }
-
   function restart() {
     const v = $("#video");
     v.pause(); v.removeAttribute("src"); v.load();
-    state = { ...state, jobId: null, result: null, frames: [], focus: null, selected: null };
+    stopPreview();
+    state = freshState();
     history.replaceState(null, "", location.pathname);
     $("#file-input").value = "";
     $("#upload-error").hidden = true;
     show("upload");
   }
-  document.addEventListener("click", (e) => {
-    if (e.target.closest("[data-action=restart]")) restart();
-  });
+  document.addEventListener("click", (e) => { if (e.target.closest("[data-action=restart]")) restart(); });
 
-  // ------------------------------------------------------------ config + upload screen
+  function toast(msg, ms = 3200) {
+    const t = $("#toast");
+    t.textContent = msg; t.hidden = false;
+    clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), ms);
+  }
+
+  // ------------------------------------------------------------ upload screen
   async function loadConfig() {
     try {
       config = await (await fetch("api/config")).json();
       const L = config.limits;
-      $("#limits-text").textContent =
-        `${L.formats.map((f) => f.toUpperCase()).join(", ")} · up to ${L.max_duration_s} s · max ${L.max_upload_mb} MB`;
+      $("#limits-text").textContent = `${L.formats.map((f) => f.toUpperCase()).join(", ")} · ${L.min_duration_s}-${L.max_duration_s} s · up to ${L.max_upload_mb} MB`;
       $("#list-assessable").innerHTML = config.skill.assessable.map((c) => `<li>${esc(c.title)}</li>`).join("");
       $("#list-not-assessable").innerHTML = config.skill.not_assessable.map((c) => `<li>${esc(c.title)}</li>`).join("");
       $("#btn-sample").hidden = !config.sample_available;
-    } catch {
-      $("#limits-text").textContent = "MP4 or MOV, up to 60 seconds";
-    }
+    } catch { /* keep defaults */ }
   }
-
-  function uploadError(msg) {
-    const el = $("#upload-error");
-    el.textContent = msg; el.hidden = false;
-  }
-
+  function uploadError(msg) { const el = $("#upload-error"); el.textContent = msg; el.hidden = false; }
   function videoDuration(file) {
     return new Promise((resolve) => {
-      const v = document.createElement("video");
-      const url = URL.createObjectURL(file);
+      const v = document.createElement("video"), url = URL.createObjectURL(file);
       const done = (d) => { URL.revokeObjectURL(url); resolve(d); };
-      v.preload = "metadata";
-      v.onloadedmetadata = () => done(v.duration);
-      v.onerror = () => done(null); // browser can't read it; the server will try
-      setTimeout(() => done(null), 4000);
-      v.src = url;
+      v.preload = "metadata"; v.onloadedmetadata = () => done(v.duration); v.onerror = () => done(null);
+      setTimeout(() => done(null), 4000); v.src = url;
     });
   }
-
   async function handleFile(file) {
     $("#upload-error").hidden = true;
     if (!file) return;
-    const L = config?.limits;
-    const ext = file.name.split(".").pop().toLowerCase();
+    const L = config?.limits, ext = file.name.split(".").pop().toLowerCase();
     if (L && !L.formats.includes(ext)) return uploadError(`“.${ext}” files aren't supported. Use ${L.formats.join(", ")}.`);
-    if (L && file.size > L.max_upload_mb * 1024 * 1024) return uploadError(`This file is ${(file.size / 1048576).toFixed(0)} MB. The limit is ${L.max_upload_mb} MB.`);
+    if (L && file.size > L.max_upload_mb * 1048576) return uploadError(`This file is ${(file.size / 1048576).toFixed(0)} MB; the limit is ${L.max_upload_mb} MB.`);
     const dur = await videoDuration(file);
     if (L && dur && isFinite(dur) && dur > L.max_duration_s + 0.5) return uploadError(`This video is ${Math.round(dur)} s long. Please trim it to ${L.max_duration_s} s or less.`);
     if (L && dur && isFinite(dur) && dur < L.min_duration_s) return uploadError(`This video is only ${dur.toFixed(1)} s. Record at least one full rep.`);
     startUpload(file);
   }
-
   const dz = $("#dropzone");
   $("#file-input").addEventListener("change", (e) => handleFile(e.target.files[0]));
   dz.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("#file-input").click(); } });
@@ -86,61 +86,69 @@
   $("#btn-sample").addEventListener("click", startSample);
 
   // ------------------------------------------------------------ progress
+  let elapsedTimer = null, previewUrl = null;
   function setProgress(stage, frac, label) {
     const idx = STAGE_ORDER.indexOf(stage);
-    document.querySelectorAll("#stages li").forEach((li) => {
+    $$("#stages li").forEach((li) => {
       const i = STAGE_ORDER.indexOf(li.dataset.stage);
       li.classList.toggle("done", i < idx || stage === "done");
       li.classList.toggle("active", i === idx && stage !== "done");
     });
     const pct = Math.round(Math.max(0, Math.min(1, frac)) * 100);
     $("#progress-bar").style.width = pct + "%";
-    $("#progress-pct").textContent = `${pct}% · ${label || ""}`;
+    $("#progress-pct").textContent = pct + "%";
+    $("#progress-label").textContent = label || "";
   }
-
   function progressError(msg) {
+    clearInterval(elapsedTimer);
     $("#progress-error-text").textContent = msg;
     $("#progress-error").hidden = false;
-    document.querySelectorAll("#stages li.active").forEach((li) => li.classList.remove("active"));
+    $("#progress-title").textContent = "Something went wrong";
+    $$("#stages li.active").forEach((li) => li.classList.remove("active"));
   }
-
-  function beginProgress(name) {
+  function beginProgress(name, file) {
     $("#progress-error").hidden = true;
+    $("#progress-title").textContent = "Analysing your squat";
     $("#progress-file").textContent = name;
+    stopPreview();
+    if (file) {
+      previewUrl = URL.createObjectURL(file);
+      const pv = $("#preview-video"); pv.src = previewUrl; pv.play().catch(() => {});
+    }
+    const t0 = Date.now();
+    clearInterval(elapsedTimer);
+    elapsedTimer = setInterval(() => ($("#progress-elapsed").textContent = `${Math.round((Date.now() - t0) / 1000)} s`), 1000);
+    $("#progress-elapsed").textContent = "0 s";
     show("progress");
   }
-
+  function stopPreview() {
+    const pv = $("#preview-video"); pv.pause(); pv.removeAttribute("src"); pv.load();
+    if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
+  }
   function startUpload(file) {
-    beginProgress(file.name);
+    beginProgress(file.name, file);
     setProgress("upload", 0, "Uploading");
-    const form = new FormData();
-    form.append("file", file);
+    const form = new FormData(); form.append("file", file);
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "api/jobs");
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) setProgress("upload", (e.loaded / e.total) * 0.1, `Uploading ${Math.round((e.loaded / e.total) * 100)}%`);
-    };
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) setProgress("upload", (e.loaded / e.total) * 0.1, `Uploading ${Math.round((e.loaded / e.total) * 100)}%`); };
     xhr.onload = () => {
-      let body = {};
-      try { body = JSON.parse(xhr.responseText); } catch {}
+      let body = {}; try { body = JSON.parse(xhr.responseText); } catch {}
       if (xhr.status >= 200 && xhr.status < 300 && body.id) poll(body.id);
       else progressError(body.detail || `Upload failed (HTTP ${xhr.status}).`);
     };
     xhr.onerror = () => progressError("The upload failed. Check your connection and try again.");
     xhr.send(form);
   }
-
   async function startSample() {
-    beginProgress("Common sample video (from the assignment)");
+    beginProgress("Assignment sample video");
     setProgress("upload", 0.1, "Using the sample video");
     try {
-      const r = await fetch("api/jobs/sample", { method: "POST" });
-      const body = await r.json();
+      const r = await fetch("api/jobs/sample", { method: "POST" }); const body = await r.json();
       if (!r.ok) throw new Error(body.detail || "Couldn't start the sample.");
       poll(body.id);
     } catch (e) { progressError(e.message); }
   }
-
   async function poll(id) {
     state.jobId = id;
     history.replaceState(null, "", `#job=${id}`);
@@ -150,210 +158,258 @@
         const r = await fetch(`api/jobs/${id}`);
         if (r.status === 404) return progressError("This analysis no longer exists. It may have been deleted.");
         st = await r.json();
-      } catch {
-        await sleep(1500); continue; // brief network blip: keep trying
-      }
+      } catch { await sleep(1500); continue; }
       if (st.status === "failed") return progressError(st.error || "Analysis failed.");
-      if (st.status === "done") { setProgress("done", 1, "Done"); return loadResult(id); }
-      // server progress covers 10%..100% of the bar (upload took 0..10%)
+      if (st.status === "done") { setProgress("done", 1, "Done"); clearInterval(elapsedTimer); return loadResult(id); }
       setProgress(st.status === "queued" ? "prepare" : st.stage, 0.1 + 0.9 * (st.progress || 0),
         st.status === "queued" ? "Waiting for the previous video to finish" : st.message);
       await sleep(700);
     }
   }
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  // ------------------------------------------------------------ results
+  // ------------------------------------------------------------ report
   async function loadResult(id) {
     const [res, st] = await Promise.all([
       fetch(`api/jobs/${id}/result`).then((r) => (r.ok ? r.json() : Promise.reject(r))),
       fetch(`api/jobs/${id}`).then((r) => r.json()).catch(() => ({})),
     ]).catch(() => [null, null]);
     if (!res) return progressError("We couldn't load the result. Please try again.");
-    state.result = res;
-    state.jobId = id;
+    stopPreview();
+    state.result = res; state.jobId = id;
     renderResult(res, st);
     show("result");
   }
-
-  function fmtTime(s) {
-    const m = Math.floor(s / 60);
-    return `${m}:${(s - m * 60).toFixed(1).padStart(4, "0")}`;
-  }
-
-  function pageList(sources) {
+  const fmtTime = (s) => { const m = Math.floor(s / 60); return `${m}:${(s - m * 60).toFixed(1).padStart(4, "0")}`; };
+  function pageRef(sources) {
     const pages = [...new Set(sources.map((s) => s.page))].sort((a, b) => a - b);
     const title = sources.map((s) => `p.${s.page}: ${s.section}`).join("\n");
-    return `<span class="page-ref" title="${esc(title)}">Ref. p. ${pages.join(", ")}</span>`;
+    return `<span class="page-ref" title="${esc(title)}">${icon("book")}p. ${pages.join(", ")}</span>`;
+  }
+  function measureText(f) {
+    const m = f.measurement || {};
+    if (m.value == null) return "not measured";
+    const unit = (String(m.unit || "").match(/^(thigh lengths|foot lengths|degrees|seconds)/) || [])[1] || String(m.unit || "").split(" (")[0];
+    const v = Number(m.value);
+    const txt = unit === "degrees" ? `${v.toFixed(0)}°` : unit === "seconds" ? `${v.toFixed(2)} s` : `${v.toFixed(2)} ${unit}`;
+    return txt + (m.extra?.approx_cm != null ? ` (≈ ${m.extra.approx_cm} cm)` : "");
   }
 
   function renderResult(res, st) {
     const a = res.analysis, ev = res.evaluation, fb = res.feedback || {};
-    state.frames = a.frames || [];
-    state.fps = a.fps || 30;
-    state.n = a.frame_count || state.frames.length;
-    state.size = a.frame_size || [res.video.width, res.video.height];
-    state.focus = null; state.selected = null;
-    const fbMap = new Map((fb.findings_feedback || []).map((x) => [`${x.rep}|${x.criterion_id}`, x]));
-    state.fbMap = fbMap;
-
+    Object.assign(state, {
+      frames: a.frames || [], fps: a.fps || 30, n: a.frame_count || (a.frames || []).length,
+      size: a.frame_size || [res.video.width, res.video.height], focus: null, selected: null, repFilter: "all",
+      fbMap: new Map((fb.findings_feedback || []).map((x) => [`${x.rep}|${x.criterion_id}`, x])),
+      byKey: new Map((ev.findings || []).map((f) => [`${f.rep}|${f.criterion_id}`, f])),
+    });
     const reps = a.reps || [];
-    $("#result-meta").textContent = [
-      st?.filename, `${res.video.duration_s.toFixed(1)} s video`,
-      a.status === "ok" ? `${reps.length} rep${reps.length === 1 ? "" : "s"} found` : null,
-      `analysed in ${Math.round(res.timings.total_s)} s`,
-    ].filter(Boolean).join(" · ");
-
     const ok = a.status === "ok";
+
+    $("#result-meta").textContent = [st?.filename, `${res.video.duration_s.toFixed(1)} s video`,
+      ok ? `${reps.length} rep${reps.length === 1 ? "" : "s"}` : null, `analysed in ${Math.round(res.timings.total_s)} s`]
+      .filter(Boolean).join(" · ");
+    $("#report-title").textContent = ok ? `Your squat, rep by rep` : `This video couldn't be assessed`;
     $("#unsuitable").hidden = ok;
-    $("#summary-card").hidden = !ok;
+    $("#verdict").hidden = !ok;
+    $("#report-grid").hidden = !ok;
     $("#unsuitable-text").textContent = ok ? "" : a.message;
+    if (!ok) return;
 
-    // summary
+    // verdict tiles + coach
     const c = ev.counts || {};
-    $("#counts").innerHTML = ["meets", "does_not_meet", "cannot_assess"].map((k) =>
-      `<span class="chip ${k}">${RESULT_ICON[k]} ${c[k] || 0} ${RESULT_LABEL[k].toLowerCase()}</span>`).join("");
+    $("#counts").innerHTML = ORDER.map((k) => `
+      <div class="stat ${RES[k].tile}"><span class="stat-ic">${icon(RES[k].icon)}</span>
+        <b>${c[k] || 0}</b><span>${RES[k].group}</span></div>`).join("");
     const aiName = { claude: "Claude", gemini: "Gemini" }[fb.source];
-    $("#coach-source").textContent = aiName
-      ? `Feedback written by the AI coach (${aiName}) from the rulebook`
-      : (fb.note || "Feedback taken directly from the rulebook");
+    $("#coach-source").textContent = aiName ? `Written by the AI coach (${aiName}) from the rulebook` : (fb.note || "Tips taken straight from the rulebook");
     $("#summary-text").textContent = fb.overall_summary || "";
-    $("#priorities").innerHTML = (fb.top_priorities || []).map((p, i) => `
-      <div class="prio"><h3>${i + 1}. ${esc(p.title)}</h3>
-        <p>${esc(p.cue)} <span class="page-ref">p. ${esc(p.page)}</span></p>
-        <p class="muted small">${esc(p.why)}</p></div>`).join("");
 
-    // player
-    const [w, h] = state.size;
-    const player = $("#player");
-    player.style.setProperty("--ar", `${w} / ${h}`);
-    player.style.setProperty("--ar-num", String(w / h));
-    const v = $("#video");
-    v.src = `api/jobs/${state.jobId}/video`;
-    v.playbackRate = parseFloat($("#speed").value);
-    $("#scrub").max = Math.max(0, state.n - 1);
-    $("#scrub").value = 0;
+    setupPlayer(reps);
+    renderOverview(ev, fb, reps);
+    renderReps(ev, reps);
+    renderNA(ev);
+    renderHow(res, a, fb);
+    selectTab("overview");
 
-    // rep strip
-    $("#rep-strip").innerHTML = reps.map((r) => {
-      const left = (r.start_frame / state.n) * 100, width = ((r.end_frame - r.start_frame) / state.n) * 100;
-      const tick = ((r.bottom_frame - r.start_frame) / Math.max(1, r.end_frame - r.start_frame)) * 100;
-      return `<button class="rep-seg" type="button" data-frame="${r.bottom_frame}" style="left:${left}%;width:${width}%"
-        title="Rep ${r.index}: bottom at ${fmtTime(r.bottom_s)}">Rep ${r.index}<span class="bottom-tick" style="left:${tick}%"></span></button>`;
-    }).join("");
-
-    renderMatrix(ev, reps);
-
-    $("#na-list").innerHTML = (ev.not_assessable || []).map((n) =>
-      `<li><b>${esc(n.title)}</b>${esc(n.reason)} ${pageList(n.sources)}</li>`).join("");
-
-    const how = [];
-    if (ok) {
-      how.push(`Camera sees the lifter's <b>${esc(a.side)}</b> side; the lifter faces <b>${esc(a.facing)}</b>.`);
-      how.push(`Body points: MediaPipe Pose, run twice per frame (as recorded and mirrored) and averaged. Where the two runs disagree, the check's uncertainty margin grows by half the difference. Points marked hollow were hidden or derived.`);
-      if (a.quality) how.push(`Video quality around the lifter: leg ${Math.round(a.quality.leg_px)} px long, brightness ${a.quality.brightness}, sharpness ${a.quality.sharpness}.`);
-      how.push(`Bar: the weight plate is found in each frame (circle detection, then appearance matching for blurred frames). Bar measured in ${Math.round(a.bar_detected_ratio * 100)}% of frames.`);
-      how.push(`Torso line for the back angle: ${esc(a.torso_line)}.`);
-      how.push(`Feet don't move during a squat, so the heel, toe and midfoot are averaged over the whole video.`);
-      if (a.scale?.px_per_cm) how.push(`Centimetres are approximate: ${esc(a.scale.how)}.`);
-      how.push(`Camera angle check: left and right hips appear ${(a.camera.hip_separation).toFixed(2)} thigh lengths apart (0 = perfect side view). This widens the uncertainty of the bar-over-midfoot check by ${(a.camera.parallax_foot_lengths).toFixed(2)} foot lengths.`);
-    }
-    for (const i of a.issues || []) how.push(`⚠ ${esc(i.message)}`);
-    how.push(`Results: decided by fixed geometry rules from <code>criteria.yaml</code> (rulebook v${esc(res.skill.version)}). ${aiName ? `The AI coach (${esc(fb.model || aiName)}) only writes the explanations and tips; it cannot change a result.` : "The AI coach did not run, so tips come straight from the rulebook."}`);
-    const t = res.timings;
-    how.push(`Timing: prepare ${t.prepare_s}s, body ${t.pose_s}s, bar ${t.bar_s}s, coach ${t.coach_s}s.`);
-    if (fb.usage) {
-      // list price shown only for the default Claude model; other models: tokens only
-      const cost = fb.source === "claude" && String(fb.model || "").startsWith("claude-opus-5-5")
-        ? `, about $${((fb.usage.input_tokens * 4 + fb.usage.output_tokens * 20) / 1e6).toFixed(3)} at list price` : "";
-      how.push(`AI coach usage: ${fb.usage.input_tokens} input tokens (${fb.usage.cache_read_input_tokens} from cache), ${fb.usage.output_tokens} output tokens${cost}.`);
-    }
-    if (fb.validation?.dropped_items) how.push(`The coach's output had ${fb.validation.dropped_items} item(s) that weren't grounded in the rulebook; they were replaced with rulebook text.`);
-    $("#how-body").innerHTML = `<ul>${how.map((x) => `<li>${x}</li>`).join("")}</ul>`;
-    $("#detail").hidden = true;
-
+    const fails = ev.findings.filter((f) => f.result === "does_not_meet").length;
+    $("#reps-count").textContent = fails ? String(fails) : "";
+    $("#reps-count").hidden = !fails;
+    // show the first problem straight away so the overlay has something to point at
+    const first = ev.findings.find((f) => f.result === "does_not_meet") || ev.findings[0];
+    if (first) selectFinding(first, { seek: true });
     resizeCanvas();
-    if (ok) {
-      // open the first failed check, else the first finding, so evidence is visible right away
-      const first = ev.findings.find((f) => f.result === "does_not_meet") || ev.findings[0];
-      if (first) selectFinding(first, false);
-    }
   }
 
-  function renderMatrix(ev, reps) {
+  // ---------- overview
+  function renderOverview(ev, fb, reps) {
+    const prios = fb.top_priorities || [];
+    $("#priorities").innerHTML = prios.length ? prios.map((p, i) => {
+      const f = ev.findings.find((x) => x.criterion_id === p.criterion_id && x.result === "does_not_meet");
+      return `<div class="prio"><span class="prio-num">${i + 1}</span>
+        <div><h3>${esc(p.title)}</h3><p>${esc(p.cue)} <span class="page-ref">${icon("book")}p. ${esc(p.page)}</span></p>
+          <p class="why">${esc(p.why)}</p></div>
+        ${f ? `<button class="btn btn-soft" type="button" data-open="${f.rep}|${f.criterion_id}">Show me ${icon("arrow")}</button>` : ""}</div>`;
+    }).join("") : `<div class="empty-good">${icon("check")} Nothing measurable failed the standard. Check the “Couldn't check” items too.</div>`;
+
     const crit = [];
-    for (const f of ev.findings) if (!crit.find((c) => c.id === f.criterion_id)) crit.push({ id: f.criterion_id, title: f.title, sources: f.sources });
-    const byKey = new Map(ev.findings.map((f) => [`${f.rep}|${f.criterion_id}`, f]));
-    state.byKey = byKey;
-    const head = `<tr><th>Check</th>${reps.map((r) => `<th>Rep ${r.index}</th>`).join("")}</tr>`;
-    const rows = crit.map((c) => `<tr><td class="crit"><div class="crit-title">${esc(c.title)}</div>${pageList(c.sources)}</td>${
-      reps.map((r) => {
-        const f = byKey.get(`${r.index}|${c.id}`);
-        return `<td>${f ? `<button class="badge ${f.result}" type="button" data-key="${r.index}|${c.id}">${RESULT_ICON[f.result]} ${RESULT_LABEL[f.result]}</button>` : ""}</td>`;
-      }).join("")}</tr>`).join("");
-    $("#matrix").innerHTML = `<thead>${head}</thead><tbody>${rows}</tbody>`;
+    for (const f of ev.findings) if (!crit.find((x) => x.id === f.criterion_id)) crit.push({ id: f.criterion_id, title: f.title, sources: f.sources });
+    $("#glance").innerHTML = `<thead><tr><th>Check</th>${reps.map((r) => `<th class="rep-col">Rep ${r.index}</th>`).join("")}</tr></thead>
+      <tbody>${crit.map((cr) => `<tr><td><span class="c-title">${esc(cr.title)}</span><br>${pageRef(cr.sources)}</td>${reps.map((r) => {
+        const f = state.byKey.get(`${r.index}|${cr.id}`);
+        return `<td class="rep-col">${f ? `<button class="res-dot ${f.result}" type="button" data-open="${r.index}|${cr.id}"
+          title="Rep ${r.index}: ${esc(RES[f.result].short)}" aria-label="${esc(cr.title)}, rep ${r.index}: ${esc(RES[f.result].short)}">${icon(RES[f.result].icon)}</button>` : ""}</td>`;
+      }).join("")}</tr>`).join("")}</tbody>`;
   }
-
-  $("#matrix").addEventListener("click", (e) => {
-    const b = e.target.closest(".badge");
-    if (b) selectFinding(state.byKey.get(b.dataset.key), true);
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-open]");
+    if (b) openFinding(b.dataset.open);
   });
 
-  function selectFinding(f, scroll) {
+  // ---------- rep by rep
+  function renderReps(ev, reps) {
+    const fails = (i) => ev.findings.filter((f) => f.rep === i && f.result === "does_not_meet").length;
+    $("#rep-chips").innerHTML = [`<button type="button" data-rep="all" class="${state.repFilter === "all" ? "on" : ""}">All reps</button>`]
+      .concat(reps.map((r) => `<button type="button" data-rep="${r.index}" class="${state.repFilter === r.index ? "on" : ""}">Rep ${r.index}<span class="mini">${fails(r.index) ? `· ${fails(r.index)} ✗` : ""}</span></button>`))
+      .join("");
+    const list = ev.findings.filter((f) => state.repFilter === "all" || f.rep === state.repFilter);
+    $("#finding-groups").innerHTML = ORDER.map((k) => {
+      const items = list.filter((f) => f.result === k);
+      if (!items.length) return "";
+      return `<section class="group"><h3 class="group-h ${k}">${icon(RES[k].icon)} ${RES[k].group} <span class="count">${items.length}</span></h3>
+        ${items.map(findingCard).join("")}</section>`;
+    }).join("");
+  }
+  function findingCard(f) {
+    const key = `${f.rep}|${f.criterion_id}`, fb = state.fbMap.get(key) || {}, m = f.measurement || {};
+    const tag = f.threshold_source === "document" ? `<span class="tag doc">document</span>` : `<span class="tag interp">app interpretation</span>`;
+    return `<details class="finding ${f.result}" data-key="${key}">
+      <summary><span class="st-ic">${icon(RES[f.result].icon)}</span>
+        <span><span class="f-title">${esc(f.title)}</span><span class="f-sub">Rep ${f.rep} · ${fmtTime(f.time_s)} · ${esc(measureText(f))}</span></span>
+        ${icon("right", "f-chev")}</summary>
+      <div class="f-body">
+        ${fb.feedback ? `<div class="f-coach">${icon("spark")}<span>${esc(fb.feedback)}</span></div>` : ""}
+        <dl class="f-dl">
+          <dt>The standard</dt><dd>${esc(f.requirement)} ${pageRef(f.sources)}</dd>
+          <dt>What we saw</dt><dd>${esc(fb.explanation || f.explanation)}</dd>
+          <dt>Measured</dt><dd>${esc(measureText(f))}${m.observed === false ? " · <i>points hidden or estimated</i>" : ""}</dd>
+          <dt>Target</dt><dd>${esc(f.target_text)} ${tag}</dd>
+          <dt>Uncertainty</dt><dd>Within ±${f.uncertainty_band} of a limit counts as “can't assess”.${fb.uncertainty ? " " + esc(fb.uncertainty) : ""}</dd>
+        </dl>
+        <div class="f-actions"><button class="btn btn-soft" type="button" data-seek="${f.frame}">${icon("play")} Show this moment (${fmtTime(f.time_s)})</button></div>
+        <details class="f-calc"><summary>How this was calculated</summary><p>${esc(f.explanation)}</p>
+          ${f.threshold_note ? `<p><b>Where the number comes from:</b> ${esc(f.threshold_note)}</p>` : ""}</details>
+      </div></details>`;
+  }
+  $("#rep-chips").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-rep]"); if (!b) return;
+    state.repFilter = b.dataset.rep === "all" ? "all" : Number(b.dataset.rep);
+    renderReps(state.result.evaluation, state.result.analysis.reps);
+    const rep = state.result.analysis.reps.find((r) => r.index === state.repFilter);
+    if (rep) seekFrame(rep.bottom_frame);
+  });
+  $("#finding-groups").addEventListener("toggle", (e) => {
+    const d = e.target; if (!(d instanceof HTMLDetailsElement) || !d.classList.contains("finding") || !d.open) return;
+    const f = state.byKey.get(d.dataset.key); if (f) selectFinding(f, { seek: true });
+  }, true);
+  function openFinding(key) {
+    const f = state.byKey.get(key); if (!f) return;
+    state.selected = key;
+    if (state.repFilter !== "all" && state.repFilter !== f.rep) state.repFilter = f.rep;
+    renderReps(state.result.evaluation, state.result.analysis.reps);
+    selectTab("reps");
+    selectFinding(f, { seek: true });
+    const el = $(`#finding-groups details[data-key="${CSS.escape(key)}"]`);
+    if (el) { el.open = true; el.scrollIntoView({ behavior: "smooth", block: "center" }); }
+  }
+
+  // ---------- not checkable + how
+  function renderNA(ev) {
+    $("#na-list").innerHTML = (ev.not_assessable || []).map((n) => `<li><span class="st-ic" style="background:var(--unk-soft);color:var(--unk-ink)">${icon("camera")}</span>
+      <div><b>${esc(n.title)}</b><p>${esc(n.reason)}</p>${pageRef(n.sources)}</div></li>`).join("");
+  }
+  function renderHow(res, a, fb) {
+    const rows = [];
+    const add = (ic, html, cls = "") => rows.push(`<li class="${cls}"><span class="tip-ic">${icon(ic)}</span><div>${html}</div></li>`);
+    for (const i of a.issues || []) add("alert", esc(i.message), "warn");
+    add("person", `<b>Body points.</b> MediaPipe Pose, run twice per frame (as recorded and mirrored) and averaged. Where the two runs disagree, a check's uncertainty margin grows. Hollow dots were hidden or derived.`);
+    add("target", `<b>Bar.</b> The weight plate is found in each frame (circle detection, with appearance matching for blurred frames). Bar measured in ${Math.round((a.bar_detected_ratio || 0) * 100)}% of frames.`);
+    add("ruler", `<b>Torso line.</b> ${esc(a.torso_line)}. The lifter faces ${esc(a.facing)}; the camera sees their ${esc(a.side)} side.`);
+    if (a.scale?.px_per_cm) add("ruler", `<b>Centimetres are approximate:</b> ${esc(a.scale.how)}.`);
+    add("camera", `<b>Camera angle.</b> Left and right hips appear ${(a.camera?.hip_separation ?? 0).toFixed(2)} thigh lengths apart (0 = perfect side view); this widens the bar-over-midfoot margin by ${(a.camera?.parallax_foot_lengths ?? 0).toFixed(2)} foot lengths.`);
+    if (a.quality) add("sun", `<b>Video quality</b> around the lifter: leg ${Math.round(a.quality.leg_px)} px long, brightness ${a.quality.brightness}, sharpness ${a.quality.sharpness}.`);
+    const aiName = { claude: "Claude", gemini: "Gemini" }[fb.source];
+    add("book", `<b>Results</b> come from fixed geometry rules in <code>criteria.yaml</code> (rulebook v${esc(res.skill.version)}). ${aiName ? `The AI coach (${esc(fb.model || aiName)}) only writes the explanations and tips; it cannot change a result.` : "The AI coach did not run, so tips come straight from the rulebook."}`);
+    if (fb.usage) add("spark", `<b>AI coach usage:</b> ${fb.usage.input_tokens} input tokens (${fb.usage.cache_read_input_tokens} cached), ${fb.usage.output_tokens} output tokens.`);
+    if (fb.validation?.dropped_items) add("alert", `${fb.validation.dropped_items} coach item(s) weren't grounded in the rulebook and were replaced with rulebook text.`, "warn");
+    const t = res.timings;
+    add("clock", `<b>Timing:</b> prepare ${t.prepare_s}s · body ${t.pose_s}s · bar ${t.bar_s}s · coach ${t.coach_s}s.`);
+    $("#how-body").innerHTML = `<ul class="how-list">${rows.join("")}</ul>`;
+  }
+
+  // ---------- tabs
+  function selectTab(name) {
+    for (const t of ["overview", "reps", "na", "how"]) {
+      $(`#tab-${t}`).setAttribute("aria-selected", String(t === name));
+      $(`#panel-${t}`).hidden = t !== name;
+    }
+  }
+  $$(".tabs [role=tab]").forEach((b) => b.addEventListener("click", () => selectTab(b.id.replace("tab-", ""))));
+  $(".tabs").addEventListener("keydown", (e) => {
+    if (!["ArrowLeft", "ArrowRight"].includes(e.key)) return;
+    const tabs = $$(".tabs [role=tab]"), i = tabs.indexOf(document.activeElement);
+    if (i < 0) return;
+    const next = tabs[(i + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
+    next.focus(); next.click();
+  });
+
+  // ---------- selection -> overlay
+  function selectFinding(f, { seek } = {}) {
     state.selected = `${f.rep}|${f.criterion_id}`;
     state.focus = f.criterion_id;
-    document.querySelectorAll(".badge").forEach((b) => b.classList.toggle("selected", b.dataset.key === state.selected));
-    const fb = state.fbMap.get(state.selected) || {};
-    const m = f.measurement || {};
-    const val = m.value == null ? "not measured" : `${Number(m.value).toFixed(2)} ${esc(m.unit.split(" (")[0])}`
-      + (m.extra?.approx_cm != null ? ` (≈ ${m.extra.approx_cm} cm)` : "");
-    const srcTag = f.threshold_source === "document"
-      ? `<span class="tag doc">from the document</span>`
-      : `<span class="tag interp">app interpretation</span>`;
-    const d = $("#detail");
-    d.innerHTML = `
-      <div class="d-head">
-        <div><h3>${esc(f.title)}: rep ${f.rep}</h3>${pageList(f.sources)}</div>
-        <span class="badge ${f.result}">${RESULT_ICON[f.result]} ${RESULT_LABEL[f.result]}</span>
-      </div>
-      <dl>
-        <dt>The standard</dt><dd>${esc(f.requirement)}</dd>
-        <dt>What we saw</dt><dd>${esc(fb.explanation || f.explanation)}</dd>
-        <dt>Measurement</dt><dd>${val} at <button class="linkbtn" type="button" data-seek="${f.frame}">${fmtTime(f.time_s)} (frame ${f.frame})</button>${m.observed === false ? " · <i>inputs hidden or estimated</i>" : ""}</dd>
-        <dt>Target</dt><dd>${esc(f.target_text)} ${srcTag}
-          ${f.threshold_note ? `<details><summary class="small">Where this number comes from</summary><p class="small muted">${esc(f.threshold_note)}</p></details>` : ""}</dd>
-        <dt>Uncertainty</dt><dd>Values within ±${f.uncertainty_band} of a limit are reported as “can't assess”.${fb.uncertainty ? " " + esc(fb.uncertainty) : ""}</dd>
-        <dt>Calculation</dt><dd class="small muted">${esc(f.explanation)}</dd>
-      </dl>
-      ${fb.feedback ? `<div class="feedback-box"><p><b>Coach:</b> ${esc(fb.feedback)}</p></div>` : ""}`;
-    d.hidden = false;
-    seekFrame(f.frame);
-    if (scroll && window.innerWidth < 900) $("#player").scrollIntoView({ behavior: "smooth", block: "start" });
+    $$(".res-dot").forEach((b) => b.classList.toggle("selected", b.dataset.open === state.selected));
+    const ft = $("#focus-tag");
+    ft.hidden = false;
+    ft.textContent = `${RES[f.result].short === "Meets" ? "✓" : RES[f.result].short === "Does not meet" ? "✗" : "?"} ${f.title} · rep ${f.rep}`;
+    if (seek) seekFrame(f.frame); else draw(frameOf(video.currentTime));
   }
-  $("#detail").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-seek]");
-    if (b) seekFrame(+b.dataset.seek);
-  });
-  $("#rep-strip").addEventListener("click", (e) => {
-    const b = e.target.closest(".rep-seg");
-    if (b) seekFrame(+b.dataset.frame);
-  });
 
   // ------------------------------------------------------------ player + overlay
   const video = $("#video"), canvas = $("#overlay"), ctx = canvas.getContext("2d");
   const frameOf = (t) => Math.max(0, Math.min(state.n - 1, Math.floor(t * state.fps + 1e-3)));
+  function setupPlayer(reps) {
+    const [w, h] = state.size, player = $("#player");
+    player.style.setProperty("--ar", `${w} / ${h}`);
+    player.style.setProperty("--ar-num", String(w / h));
+    video.src = `api/jobs/${state.jobId}/video`;
+    video.playbackRate = Number($(".speed .on")?.dataset.speed || 0.5);
+    $("#scrub").max = Math.max(0, state.n - 1); $("#scrub").value = 0;
+    $("#rep-strip").innerHTML = reps.map((r) => {
+      const left = (r.start_frame / state.n) * 100, width = ((r.end_frame - r.start_frame) / state.n) * 100;
+      const tick = ((r.bottom_frame - r.start_frame) / Math.max(1, r.end_frame - r.start_frame)) * 100;
+      return `<button class="rep-seg" type="button" data-frame="${r.bottom_frame}" style="left:${left}%;width:${width}%"
+        title="Rep ${r.index}: bottom at ${fmtTime(r.bottom_s)}"><span class="bottom-tick" style="left:${tick}%"></span><span class="rep-lbl">${r.index}</span></button>`;
+    }).join("");
+  }
   function seekFrame(k) {
+    k = Math.max(0, Math.min(state.n - 1, k));
     video.pause();
     video.currentTime = (k + 0.5) / state.fps;
     draw(k);
   }
-  $("#btn-play").addEventListener("click", () => (video.paused ? video.play() : video.pause()));
-  video.addEventListener("play", () => { $("#btn-play").innerHTML = "&#10074;&#10074;"; $("#btn-play").ariaLabel = "Pause"; });
-  video.addEventListener("pause", () => { $("#btn-play").innerHTML = "&#9654;"; $("#btn-play").ariaLabel = "Play"; });
+  function togglePlay() { video.paused ? video.play() : video.pause(); }
+  $("#btn-play").addEventListener("click", togglePlay);
+  video.addEventListener("play", () => { $("#btn-play").innerHTML = icon("pause"); $("#btn-play").setAttribute("aria-label", "Pause (space)"); });
+  video.addEventListener("pause", () => { $("#btn-play").innerHTML = icon("play"); $("#btn-play").setAttribute("aria-label", "Play (space)"); });
   $("#btn-prev").addEventListener("click", () => seekFrame(frameOf(video.currentTime) - 1));
   $("#btn-next").addEventListener("click", () => seekFrame(frameOf(video.currentTime) + 1));
   $("#scrub").addEventListener("input", (e) => seekFrame(+e.target.value));
-  $("#speed").addEventListener("change", (e) => (video.playbackRate = parseFloat(e.target.value)));
+  $("#rep-strip").addEventListener("click", (e) => { const b = e.target.closest(".rep-seg"); if (b) seekFrame(+b.dataset.frame); });
+  $(".speed").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-speed]"); if (!b) return;
+    $$(".speed button").forEach((x) => x.classList.toggle("on", x === b));
+    video.playbackRate = Number(b.dataset.speed);
+  });
+  document.addEventListener("click", (e) => { const b = e.target.closest("[data-seek]"); if (b) seekFrame(+b.dataset.seek); });
   ["lay-body", "lay-bar", "lay-measure"].forEach((id) => $(`#${id}`).addEventListener("change", () => draw(frameOf(video.currentTime))));
   ["seeked", "loadeddata", "pause", "timeupdate"].forEach((ev) => video.addEventListener(ev, () => draw(frameOf(video.currentTime))));
   if ("requestVideoFrameCallback" in HTMLVideoElement.prototype) {
@@ -363,190 +419,141 @@
     const loop = () => { if (!video.paused) draw(frameOf(video.currentTime)); requestAnimationFrame(loop); };
     requestAnimationFrame(loop);
   }
-
+  document.addEventListener("keydown", (e) => {
+    const el = e.target instanceof Element ? e.target : null;
+    if ($("#view-result").hidden || el?.closest("input, textarea, select, [role=tab], summary, button") || $("#rulebook-dialog").open) return;
+    if (e.key === " " || e.key === "k") { e.preventDefault(); togglePlay(); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); seekFrame(frameOf(video.currentTime) - 1); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); seekFrame(frameOf(video.currentTime) + 1); }
+  });
   function resizeCanvas() {
-    const r = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.max(1, Math.round(r.width * dpr));
-    canvas.height = Math.max(1, Math.round(r.height * dpr));
+    const r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.round(r.width * dpr)); canvas.height = Math.max(1, Math.round(r.height * dpr));
     draw(frameOf(video.currentTime || 0));
   }
   window.addEventListener("resize", resizeCanvas);
   new ResizeObserver(resizeCanvas).observe($("#player"));
 
   const C = { body: "#ffffff", joint: "#f59e0b", bar: "#a855f7", mid: "#22d3ee", good: "#4ade80", bad: "#fb923c", torso: "#facc15" };
-
-  function repAt(t) {
-    return (state.result?.analysis.reps || []).find((r) => t >= r.start_frame - 2 && t <= r.end_frame + 2);
-  }
+  const repAt = (t) => (state.result?.analysis.reps || []).find((r) => t >= r.start_frame - 2 && t <= r.end_frame + 2);
 
   function draw(t) {
     const W = canvas.width, H = canvas.height;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, W, H);
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H);
     const F = state.frames[t];
+    if (!state.result) return;
     $("#scrub").value = t;
-    $("#time").textContent = fmtTime(t / state.fps);
+    $("#time").innerHTML = `${fmtTime(t / state.fps)}<span class="t-total"> / ${fmtTime(state.n / state.fps)}</span>`;
     if (!F) { $("#frame-tag").textContent = ""; return; }
-    const s = W / state.size[0];
-    const u = (window.devicePixelRatio || 1) / s; // one CSS pixel, in video pixels
+    const s = W / state.size[0], u = (window.devicePixelRatio || 1) / s;
     ctx.setTransform(s, 0, 0, s, 0, 0);
-    const a = state.result.analysis;
-    const rep = repAt(t);
-    const atBottom = rep && Math.abs(t - rep.bottom_frame) <= 3;
-    $("#frame-tag").textContent = `${fmtTime(t / state.fps)} · frame ${t}${rep ? ` · rep ${rep.index}` : ""}${atBottom ? " · bottom" : ""}`;
-    const focus = state.focus;
+    const a = state.result.analysis, rep = repAt(t), atBottom = rep && Math.abs(t - rep.bottom_frame) <= 3, focus = state.focus;
+    $("#frame-tag").textContent = `frame ${t}${rep ? ` · rep ${rep.index}` : ""}${atBottom ? " · bottom" : ""}`;
 
     const line = (p, q, color, w, dash) => {
       if (!p || !q) return;
       ctx.beginPath(); ctx.setLineDash(dash ? dash.map((d) => d * u) : []);
       ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]);
       ctx.strokeStyle = "rgba(0,0,0,.55)"; ctx.lineWidth = (w + 2) * u; ctx.stroke();
-      ctx.strokeStyle = color; ctx.lineWidth = w * u; ctx.stroke();
-      ctx.setLineDash([]);
+      ctx.strokeStyle = color; ctx.lineWidth = w * u; ctx.stroke(); ctx.setLineDash([]);
     };
     const dot = (p, est, color = C.joint, r = 5) => {
       if (!p) return;
       ctx.beginPath(); ctx.arc(p[0], p[1], r * u, 0, Math.PI * 2);
-      ctx.lineWidth = 2.5 * u; ctx.strokeStyle = color;
-      if (est) { ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fill(); ctx.stroke(); }
+      if (est) { ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fill(); ctx.lineWidth = 2.5 * u; ctx.strokeStyle = color; ctx.stroke(); }
       else { ctx.fillStyle = color; ctx.fill(); ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.lineWidth = 1.2 * u; ctx.stroke(); }
     };
-    const label = (text, x, y, color = "#fff", bg = "rgba(0,0,0,.7)") => {
-      ctx.font = `600 ${13 * u}px system-ui, sans-serif`;
-      const w = ctx.measureText(text).width + 10 * u, h = 20 * u;
+    const label = (text, x, y, color = "#fff", bg = "rgba(0,0,0,.72)") => {
+      ctx.font = `600 ${13 * u}px Inter, system-ui, sans-serif`;
+      const w = ctx.measureText(text).width + 12 * u, h = 22 * u;
       const bx = Math.min(Math.max(2 * u, x), state.size[0] - w - 2 * u), by = Math.min(Math.max(2 * u, y - h / 2), state.size[1] - h - 2 * u);
-      ctx.fillStyle = bg; ctx.beginPath(); ctx.roundRect(bx, by, w, h, 5 * u); ctx.fill();
-      ctx.fillStyle = color; ctx.textBaseline = "middle"; ctx.fillText(text, bx + 5 * u, by + h / 2);
+      ctx.fillStyle = bg; ctx.beginPath(); ctx.roundRect(bx, by, w, h, 6 * u); ctx.fill();
+      ctx.fillStyle = color; ctx.textBaseline = "middle"; ctx.fillText(text, bx + 6 * u, by + h / 2);
     };
 
-    const feet = rep?.feet || a.feet;   // per-rep feet (the lifter may walk out of the rack first)
-    const feetSeen = feet.seen !== false;
+    const feet = rep?.feet || a.feet, feetSeen = feet.seen !== false;
     const mid = feet.midfoot, heel = feet.heel, toe = feet.toe;
 
-    // --- measurements (under the body so joints stay readable)
     if ($("#lay-measure").checked) {
-      // midfoot vertical line (only when the feet were actually seen)
       if (feetSeen) {
         const topY = F.bar ? Math.min(F.bar[1], mid[1]) - 60 : mid[1] - state.size[1] * 0.8;
         line([mid[0], mid[1]], [mid[0], Math.max(0, topY)], C.mid, focus === "bar_over_midfoot" ? 3 : 2, [6, 5]);
-        label("midfoot", mid[0] + 6 * u, mid[1] - 14 * u, "#0b2530", "rgba(34,211,238,.9)");
+        label("midfoot", mid[0] + 6 * u, mid[1] - 14 * u, "#0b2530", "rgba(34,211,238,.92)");
       }
-      // Only the selected check gets its measurement drawn, so labels never pile up.
-      // depth: horizontal line through the knee, from knee to past the hip
       if (F.knee_s && F.hip_s && (focus === "depth" || (!focus && atBottom))) {
-        const below = F.hip_s[1] > F.knee_s[1];
-        const x0 = F.knee_s[0], x1 = F.hip_s[0] + (F.hip_s[0] - F.knee_s[0]) * 0.35;
+        const below = F.hip_s[1] > F.knee_s[1], x0 = F.knee_s[0], x1 = F.hip_s[0] + (F.hip_s[0] - F.knee_s[0]) * 0.35;
         line([x0, F.knee_s[1]], [x1, F.knee_s[1]], below ? C.good : C.bad, 3, [5, 4]);
-        const m = rep && state.byKey.get(`${rep.index}|depth`)?.measurement;
-        const cm = atBottom ? m?.extra?.approx_cm : null;
-        label(`hip ${below ? "below" : "above"} knee${cm != null ? ` (${cm} cm)` : ""}`, Math.min(x0, x1), F.knee_s[1] + 22 * u,
-          "#111", below ? "rgba(74,222,128,.92)" : "rgba(251,146,60,.92)");
+        const cm = atBottom ? (rep && state.byKey.get(`${rep.index}|depth`)?.measurement?.extra?.approx_cm) : null;
+        label(`hip ${below ? "below" : "above"} knee${cm != null ? ` (${cm} cm)` : ""}`, Math.min(x0, x1), F.knee_s[1] + 24 * u, "#111", below ? "rgba(74,222,128,.94)" : "rgba(251,146,60,.94)");
       }
-      // back angle / hip drive: torso line + horizontal reference at the hip
       if (F.hip_s && F.torso_top && (focus === "back_angle_bottom" || focus === "hip_drive")) {
         line(F.hip_s, F.torso_top, C.torso, 3);
         const dir = Math.sign(F.torso_top[0] - F.hip_s[0]) || 1;
         line(F.hip_s, [F.hip_s[0] + dir * 90 * u, F.hip_s[1]], C.torso, 1.5, [4, 4]);
         const mx = (F.hip_s[0] + F.torso_top[0]) / 2, my = (F.hip_s[1] + F.torso_top[1]) / 2;
-        label(`back ${Math.round(F.back_angle)}° from floor`, mx - dir * 120 * u, my, "#111", "rgba(250,204,21,.92)");
+        label(`back ${Math.round(F.back_angle)}° from floor`, mx - dir * 130 * u, my, "#111", "rgba(250,204,21,.94)");
       }
-      // knee vs toe
-      if (focus === "knee_position_bottom" && F.knee_s) {
+      if (focus === "knee_position_bottom" && F.knee_s && feetSeen) {
         line([toe[0], toe[1]], [toe[0], F.knee_s[1] - 30 * u], C.mid, 2, [3, 4]);
         line([F.knee_s[0], F.knee_s[1]], [toe[0], F.knee_s[1]], C.mid, 2);
-        label("knee vs toe", Math.min(F.knee_s[0], toe[0]), F.knee_s[1] - 22 * u, "#0b2530", "rgba(34,211,238,.92)");
+        label("knee vs toe", Math.min(F.knee_s[0], toe[0]), F.knee_s[1] - 24 * u, "#0b2530", "rgba(34,211,238,.94)");
       }
-      // heels
-      if (focus === "heels_down") {
-        dot(heel, false, C.mid, 8);
-        label("heel", heel[0] + 10 * u, heel[1] - 18 * u, "#0b2530", "rgba(34,211,238,.92)");
-      }
-      // pause at the bottom
+      if (focus === "heels_down" && feetSeen) { dot(heel, false, C.mid, 8); label("heel", heel[0] + 10 * u, heel[1] - 20 * u, "#0b2530", "rgba(34,211,238,.94)"); }
       if (focus === "no_pause_bottom" && rep && F.hip_s) {
         const m = state.byKey.get(`${rep.index}|no_pause_bottom`)?.measurement;
-        if (m?.value != null) label(`time at the bottom: ${Number(m.value).toFixed(2)} s`, F.hip_s[0] - 60 * u, F.hip_s[1] - 30 * u);
+        if (m?.value != null) label(`time at the bottom: ${Number(m.value).toFixed(2)} s`, F.hip_s[0] - 60 * u, F.hip_s[1] - 32 * u);
       }
     }
-
-    // --- body
     if ($("#lay-body").checked) {
-      const torsoTop = F.shoulder;
-      line(torsoTop, F.hip, C.body, 3);
-      line(F.hip, F.knee, C.body, 3);
-      line(F.knee, F.ankle, C.body, 3);
-      dot(F.shoulder, F.shoulder_est);
-      dot(F.hip, F.hip_est);
-      dot(F.knee, F.knee_est);
-      dot(F.ankle, F.ankle_est);
-      if (feetSeen) {
-        line(F.ankle, heel, C.body, 3);
-        line(heel, toe, C.body, 3);
-        dot(heel, true, C.joint, 4);
-        dot(toe, true, C.joint, 4);
-        dot(mid, true, C.mid, 4);
-      }
+      line(F.shoulder, F.hip, C.body, 3); line(F.hip, F.knee, C.body, 3); line(F.knee, F.ankle, C.body, 3);
+      dot(F.shoulder, F.shoulder_est); dot(F.hip, F.hip_est); dot(F.knee, F.knee_est); dot(F.ankle, F.ankle_est);
+      if (feetSeen) { line(F.ankle, heel, C.body, 3); line(heel, toe, C.body, 3); dot(heel, true, C.joint, 4); dot(toe, true, C.joint, 4); dot(mid, true, C.mid, 4); }
     }
-
-    // --- bar path for the current rep (or everything so far, outside reps)
     if ($("#lay-bar").checked) {
       const start = rep ? rep.start_frame : 0;
       ctx.lineCap = "round";
       for (let k = Math.max(start, 1); k <= t; k++) {
         const p = state.frames[k - 1]?.bar, q = state.frames[k]?.bar;
         if (!p || !q) continue;
-        const interp = state.frames[k].bar_status === "interpolated";
-        ctx.beginPath(); ctx.setLineDash(interp ? [4 * u, 4 * u] : []);
+        ctx.beginPath(); ctx.setLineDash(state.frames[k].bar_status === "interpolated" ? [4 * u, 4 * u] : []);
         ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]);
         ctx.strokeStyle = C.bar; ctx.lineWidth = (focus === "bar_path_vertical" || focus === "bar_over_midfoot" ? 5 : 4) * u; ctx.stroke();
       }
       ctx.setLineDash([]);
       if (F.bar) {
-        if (F.bar_r) {
-          ctx.beginPath(); ctx.arc(F.bar[0], F.bar[1], F.bar_r, 0, Math.PI * 2);
-          ctx.strokeStyle = "rgba(168,85,247,.85)"; ctx.lineWidth = 2 * u; ctx.stroke();
-        }
+        if (F.bar_r) { ctx.beginPath(); ctx.arc(F.bar[0], F.bar[1], F.bar_r, 0, Math.PI * 2); ctx.strokeStyle = "rgba(168,85,247,.85)"; ctx.lineWidth = 2 * u; ctx.stroke(); }
         dot(F.bar, F.bar_status === "interpolated", C.bar, 6);
         if ($("#lay-measure").checked && feetSeen && (focus === "bar_over_midfoot" || focus === "bar_path_vertical")) {
           line([F.bar[0], F.bar[1]], [mid[0], F.bar[1]], C.mid, 2);
-          const cmPerPx = a.scale?.px_per_cm ? 1 / a.scale.px_per_cm : null;
-          const dx = Math.abs(F.bar[0] - mid[0]);
-          label(`bar ${cmPerPx ? Math.round(dx * cmPerPx) + " cm" : Math.round(dx) + " px"} ${Math.sign((F.bar[0] - mid[0]) * (a.facing === "right" ? 1 : -1)) > 0 ? "ahead of" : "behind"} midfoot`,
-            Math.min(F.bar[0], mid[0]), F.bar[1] + F.bar_r * 0.0 + 26 * u, "#0b2530", "rgba(34,211,238,.92)");
+          const dx = Math.abs(F.bar[0] - mid[0]), cmPer = a.scale?.px_per_cm ? 1 / a.scale.px_per_cm : null;
+          const ahead = Math.sign((F.bar[0] - mid[0]) * (a.facing === "right" ? 1 : -1)) > 0;
+          label(`bar ${cmPer ? Math.round(dx * cmPer) + " cm" : Math.round(dx) + " px"} ${ahead ? "ahead of" : "behind"} midfoot`, Math.min(F.bar[0], mid[0]), F.bar[1] + 28 * u, "#0b2530", "rgba(34,211,238,.94)");
         }
-      } else {
-        label("bar not tracked in this frame", 8 * u, 40 * u);
+      } else if (a.bar_detected_ratio > 0) {
+        label("bar not tracked in this frame", 8 * u, 44 * u);
       }
     }
   }
 
-  // ------------------------------------------------------------ misc
+  // ------------------------------------------------------------ actions
   $("#btn-recheck").addEventListener("click", async () => {
-    const btn = $("#btn-recheck");
-    btn.disabled = true; btn.textContent = "Re-checking…";
+    const btn = $("#btn-recheck"), lbl = btn.querySelector("span");
+    btn.disabled = true; lbl.textContent = "Re-checking…";
     try {
       const r = await fetch(`api/jobs/${state.jobId}/reassess`, { method: "POST" });
       const body = await r.json();
       if (!r.ok) throw new Error(body.detail || "Re-check failed");
       const st = await fetch(`api/jobs/${state.jobId}`).then((x) => x.json()).catch(() => ({}));
-      state.result = body;
-      renderResult(body, st);
-      btn.textContent = `Re-checked (rulebook loaded ${body.skill.loaded_at.slice(11)})`;
-    } catch (e) {
-      alert(e.message);
-      btn.textContent = "Re-check with current rulebook";
-    } finally {
-      btn.disabled = false;
-      setTimeout(() => (btn.textContent = "Re-check with current rulebook"), 6000);
-    }
+      state.result = body; renderResult(body, st);
+      toast(`Re-checked with the rulebook loaded at ${body.skill.loaded_at.slice(11)}`);
+    } catch (e) { toast(e.message, 5000); }
+    finally { btn.disabled = false; lbl.textContent = "Re-check with rulebook"; }
   });
-
   $("#btn-delete").addEventListener("click", async () => {
     if (!state.jobId || !confirm("Delete this video and its analysis from the server? This can't be undone.")) return;
     await fetch(`api/jobs/${state.jobId}`, { method: "DELETE" }).catch(() => {});
-    restart();
+    restart(); toast("Video and analysis deleted");
   });
-
   const dlg = $("#rulebook-dialog");
   $("#btn-rulebook").addEventListener("click", async () => {
     dlg.showModal();
@@ -554,8 +561,9 @@
     catch { $("#rulebook-text").textContent = "Couldn't load the rulebook."; }
   });
   $("#rulebook-close").addEventListener("click", () => dlg.close());
+  dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
 
-  // resume a job from the URL (refresh-safe), and follow #job= links
+  // ------------------------------------------------------------ routing
   function openFromHash() {
     const m = location.hash.match(/job=([a-f0-9]+)/);
     if (m && m[1] !== state.jobId) { beginProgress("Loading analysis"); poll(m[1]); }

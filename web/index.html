@@ -5,188 +5,275 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Squat Check</title>
   <meta name="description" content="Upload a side-view squat video and get rep-by-rep feedback checked against the reference squat standard.">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%230f766e'/><rect x='5' y='14' width='22' height='4' rx='2' fill='white'/></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230d9488'/><rect x='5' y='14' width='22' height='4' rx='2' fill='white'/><rect x='3' y='10' width='4' height='12' rx='1.5' fill='white'/><rect x='25' y='10' width='4' height='12' rx='1.5' fill='white'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <!-- icon sprite -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4m0 0-4.5 4.5M12 4l4.5 4.5M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+      <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.3 9.2a2.8 2.8 0 0 1 5.4 1c0 1.9-2.7 2.6-2.7 2.6M12 16.8h.01"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12.5-7.5z" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><path d="M7 4.5h3.5v15H7zM13.5 4.5H17v15h-3.5z" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+      <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+      <symbol id="i-camera" viewBox="0 0 24 24"><path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.8l1.6-2.2h6.2L16.7 7h2.8A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+      <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 4v5h-5M4 20v-5h5"/><path d="M5.6 9A7 7 0 0 1 18.4 8M18.4 15A7 7 0 0 1 5.6 16"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/></symbol>
+      <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+      <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="6" r="2.5"/><path d="M12 8.5v6m0 0-3 6m3-6 3 6M7 11h10"/></symbol>
+      <symbol id="i-ruler" viewBox="0 0 24 24"><path d="M3 16 16 3l5 5L8 21zM7 12l2 2M10 9l2 2M13 6l2 2"/></symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></symbol>
+      <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.8h.01"/></symbol>
+      <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5zM3 13l9 5 9-5"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+      <symbol id="i-level" viewBox="0 0 24 24"><rect x="2" y="9" width="20" height="6" rx="1.5"/><path d="M10 12h4"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+      <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M17 9h4M3 15h4M17 15h4"/></symbol>
+    </defs>
+  </svg>
+
   <header class="topbar">
     <a class="brand" href="./" aria-label="Squat Check home">
-      <span class="brand-mark" aria-hidden="true"></span>
-      <span>Squat Check</span>
+      <span class="brand-mark" aria-hidden="true"><span></span></span>
+      <span class="brand-name">Squat Check</span>
     </a>
     <nav class="topnav">
-      <button class="linkbtn" id="btn-rulebook" type="button">View the rulebook</button>
+      <button class="ghost-btn" id="btn-rulebook" type="button" aria-label="View the rulebook"><svg class="ic"><use href="#i-book"/></svg><span>Rulebook</span></button>
     </nav>
   </header>
 
   <main id="app">
-    <!-- 1. Upload -->
+    <!-- ================================================= 1. Upload -->
     <section id="view-upload" class="view" aria-labelledby="upload-title">
       <div class="hero">
-        <h1 id="upload-title">Check your squat against the standard</h1>
-        <p class="lede">Upload a side-view video of your barbell back squat. We track your hips, knees, ankles and the bar,
-          find each rep, and check it against the reference squat standard, with the page number for every rule.</p>
+        <span class="eyebrow"><svg class="ic"><use href="#i-spark"/></svg> AI squat analysis, grounded in the standard</span>
+        <h1 id="upload-title">See exactly how your squat<br class="br-wide"> measures up</h1>
+        <p class="lede">Upload a side-view video of your barbell back squat. We track your body and the bar, find every rep,
+          and check each one against the reference squat standard, with the page number for every rule.</p>
+        <ol class="steps-strip" aria-label="How it works">
+          <li><span class="step-ic"><svg class="ic"><use href="#i-upload"/></svg></span><b>Upload</b><span>a side-view clip</span></li>
+          <li><span class="step-ic"><svg class="ic"><use href="#i-target"/></svg></span><b>We track</b><span>joints, bar &amp; reps</span></li>
+          <li><span class="step-ic"><svg class="ic"><use href="#i-check"/></svg></span><b>You get</b><span>rep-by-rep feedback</span></li>
+        </ol>
       </div>
 
       <div class="upload-grid">
         <div class="card drop-card">
           <label id="dropzone" class="dropzone" for="file-input" tabindex="0">
-            <svg class="drop-icon" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 32V12m0 0-8 8m8-8 8 8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 30v6a4 4 0 0 0 4 4h20a4 4 0 0 0 4-4v-6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+            <span class="drop-ic"><svg class="ic"><use href="#i-upload"/></svg></span>
             <span class="drop-title">Drop your squat video here</span>
-            <span class="drop-sub">or <u>choose a file</u></span>
-            <span class="drop-limits" id="limits-text">MP4 or MOV, up to 60 seconds</span>
+            <span class="drop-sub">or <span class="linklike">browse your files</span></span>
+            <span class="drop-limits" id="limits-text">MP4 or MOV · up to 60 s</span>
           </label>
           <input id="file-input" type="file" accept="video/*,.mp4,.mov,.m4v,.webm,.avi,.mkv" hidden>
-          <p id="upload-error" class="error-text" role="alert" hidden></p>
-          <div class="or-row"><span>or</span></div>
-          <button id="btn-sample" class="btn btn-secondary" type="button">Try the common sample video</button>
-          <p class="fineprint">Your video is processed on this server to produce the analysis and is not shared.
-            You can delete it from the results page.</p>
+          <p id="upload-error" class="inline-error" role="alert" hidden></p>
+          <div class="or-row"><span>no video handy?</span></div>
+          <button id="btn-sample" class="btn btn-soft btn-block" type="button"><svg class="ic"><use href="#i-film"/></svg> Try the assignment's sample video</button>
+          <p class="fineprint"><svg class="ic"><use href="#i-lock"/></svg> Your video is analysed on this server only and never shared. You can delete it from the report.</p>
         </div>
 
-        <div class="card howto">
-          <h2>How to record</h2>
-          <div class="howto-body">
-            <svg class="howto-svg" viewBox="0 0 220 150" role="img" aria-label="Camera placed side-on at hip height, about 3 metres away">
-              <line x1="8" y1="132" x2="212" y2="132" stroke="currentColor" stroke-opacity=".3" stroke-width="2"/>
-              <rect x="22" y="78" width="26" height="18" rx="3" fill="var(--accent)"/>
-              <circle cx="40" cy="87" r="5" fill="#fff"/>
-              <line x1="35" y1="96" x2="28" y2="132" stroke="currentColor" stroke-opacity=".5" stroke-width="2"/>
-              <line x1="35" y1="96" x2="42" y2="132" stroke="currentColor" stroke-opacity=".5" stroke-width="2"/>
-              <path d="M52 87 L120 70 M52 87 L120 104" stroke="var(--accent)" stroke-dasharray="4 4" stroke-width="1.5" fill="none"/>
-              <circle cx="160" cy="40" r="20" fill="currentColor" fill-opacity=".85"/>
-              <circle cx="160" cy="40" r="4" fill="#fff"/>
-              <path d="M150 56 L146 92 L172 104 L160 130 M146 92 L132 112 L150 130" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-              <text x="100" y="146" font-size="10" text-anchor="middle" fill="currentColor" fill-opacity=".7">side-on, camera at hip height</text>
+        <div class="card tips-card">
+          <h2>Get a good recording</h2>
+          <figure class="setup-fig" aria-label="Camera side-on at hip height, about 3 metres from the lifter">
+            <svg viewBox="0 0 300 130" role="img" aria-hidden="true">
+              <line x1="10" y1="118" x2="290" y2="118" class="fig-floor"/>
+              <g class="fig-cam"><rect x="26" y="64" width="34" height="22" rx="4"/><circle cx="50" cy="75" r="6" class="fig-lens"/>
+                <line x1="38" y1="86" x2="30" y2="118"/><line x1="38" y1="86" x2="46" y2="118"/></g>
+              <path d="M62 75 L170 50 M62 75 L170 104" class="fig-ray"/>
+              <text x="104" y="56" class="fig-lbl">~3 m</text>
+              <g class="fig-lifter">
+                <circle cx="222" cy="28" r="20" class="fig-plate"/><circle cx="222" cy="28" r="4" class="fig-hub"/>
+                <path d="M212 46 L206 78 L236 90 L222 116 M206 78 L190 98 L210 116"/>
+              </g>
+              <line x1="10" y1="80" x2="290" y2="80" class="fig-hip"/>
+              <text x="270" y="76" class="fig-lbl" text-anchor="end">hip height</text>
             </svg>
-            <ul class="checklist">
-              <li><b>Side view.</b> Camera square to your side, not in front or behind.</li>
-              <li><b>Hip height, level, still.</b> Use a tripod or lean the phone on something.</li>
-              <li><b>Whole body and the plate</b> in the picture, feet included.</li>
-              <li><b>1 to 10 reps</b>, good light, plain background if you can.</li>
-            </ul>
-          </div>
-          <details class="whatwecheck">
-            <summary>What we check, and what a side view can't show</summary>
-            <div class="two-col">
-              <div><h3>Checked from the video</h3><ul id="list-assessable"></ul></div>
-              <div><h3>Not checkable from the side</h3><ul id="list-not-assessable"></ul></div>
-            </div>
-          </details>
+          </figure>
+          <ul class="tip-list">
+            <li><span class="tip-ic"><svg class="ic"><use href="#i-camera"/></svg></span><div><b>Side-on</b><span>Camera square to your side, not in front or behind.</span></div></li>
+            <li><span class="tip-ic"><svg class="ic"><use href="#i-level"/></svg></span><div><b>Hip height, level, still</b><span>A tripod or a phone leaning on something.</span></div></li>
+            <li><span class="tip-ic"><svg class="ic"><use href="#i-person"/></svg></span><div><b>Whole body and the plate</b><span>Feet included, nothing in front of you.</span></div></li>
+            <li><span class="tip-ic"><svg class="ic"><use href="#i-sun"/></svg></span><div><b>1 to 10 reps, good light</b><span>2 to 60 seconds is plenty.</span></div></li>
+          </ul>
         </div>
       </div>
+
+      <details class="card scope-card">
+        <summary><svg class="ic"><use href="#i-info"/></svg> What we check, and what a side view can't show <svg class="ic chev"><use href="#i-right"/></svg></summary>
+        <div class="scope-cols">
+          <div><h3><span class="dot dot-good"></span> Checked from your video</h3><ul id="list-assessable"></ul></div>
+          <div><h3><span class="dot dot-unk"></span> Needs another camera angle</h3><ul id="list-not-assessable"></ul></div>
+        </div>
+      </details>
     </section>
 
-    <!-- 2. Progress -->
+    <!-- ================================================= 2. Progress -->
     <section id="view-progress" class="view" hidden aria-live="polite">
       <div class="card progress-card">
-        <h2 id="progress-title">Analysing your squat</h2>
-        <p class="muted" id="progress-file"></p>
-        <div class="bar-outer" aria-hidden="true"><div class="bar-inner" id="progress-bar"></div></div>
-        <p class="progress-pct" id="progress-pct">0%</p>
-        <ol class="stages" id="stages">
-          <li data-stage="upload">Uploading</li>
-          <li data-stage="prepare">Preparing your video</li>
-          <li data-stage="pose">Finding hips, knees and ankles</li>
-          <li data-stage="bar">Tracking the bar</li>
-          <li data-stage="measure">Counting reps and checking the rules</li>
-          <li data-stage="coach">Writing your feedback</li>
+        <div class="progress-head">
+          <div class="progress-preview" id="progress-preview" aria-hidden="true">
+            <video id="preview-video" muted loop playsinline></video>
+            <svg class="ic"><use href="#i-film"/></svg>
+          </div>
+          <div class="progress-titles">
+            <h2 id="progress-title">Analysing your squat</h2>
+            <p class="muted" id="progress-file"></p>
+            <p class="muted small"><svg class="ic"><use href="#i-clock"/></svg> <span id="progress-elapsed">0 s</span> · usually about a minute</p>
+          </div>
+        </div>
+        <div class="meter" aria-hidden="true"><div class="meter-fill" id="progress-bar"></div></div>
+        <div class="progress-row"><span id="progress-label">Starting</span><b id="progress-pct">0%</b></div>
+        <ol class="stepper" id="stages">
+          <li data-stage="upload"><span class="st"></span>Uploading</li>
+          <li data-stage="prepare"><span class="st"></span>Preparing the video</li>
+          <li data-stage="pose"><span class="st"></span>Finding hips, knees and ankles</li>
+          <li data-stage="bar"><span class="st"></span>Tracking the bar</li>
+          <li data-stage="measure"><span class="st"></span>Counting reps, checking the rules</li>
+          <li data-stage="coach"><span class="st"></span>Writing your feedback</li>
         </ol>
-        <div id="progress-error" class="error-box" role="alert" hidden>
-          <h3>We couldn't analyse this video</h3>
-          <p id="progress-error-text"></p>
-          <button class="btn" type="button" data-action="restart">Try another video</button>
+        <div id="progress-error" class="callout callout-bad" role="alert" hidden>
+          <svg class="ic"><use href="#i-alert"/></svg>
+          <div><h3>We couldn't analyse this video</h3><p id="progress-error-text"></p>
+            <button class="btn btn-primary" type="button" data-action="restart">Try another video</button></div>
         </div>
       </div>
     </section>
 
-    <!-- 3. Results -->
+    <!-- ================================================= 3. Report -->
     <section id="view-result" class="view" hidden>
-      <div class="result-head">
+      <div class="report-head">
         <div>
-          <h1>Your squat report</h1>
-          <p class="muted" id="result-meta"></p>
+          <p class="eyebrow-plain">Squat report</p>
+          <h1 id="report-title">Your squat, rep by rep</h1>
+          <p class="muted meta" id="result-meta"></p>
         </div>
         <div class="head-actions">
-          <button class="btn btn-secondary" type="button" id="btn-recheck" title="Re-run the rules on this video using the current criteria.yaml">Re-check with current rulebook</button>
-          <button class="btn btn-secondary" type="button" data-action="restart">Analyse another video</button>
-          <button class="linkbtn danger" type="button" id="btn-delete">Delete this video</button>
+          <button class="btn btn-soft" type="button" id="btn-recheck" aria-label="Re-check with rulebook" title="Re-run the rules on this video using the current rulebook (criteria.yaml)"><svg class="ic"><use href="#i-refresh"/></svg><span>Re-check with rulebook</span></button>
+          <button class="btn btn-primary" type="button" data-action="restart" aria-label="Analyse a new video" title="Analyse a new video"><svg class="ic"><use href="#i-upload"/></svg><span>New video</span></button>
+          <button class="icon-btn danger" type="button" id="btn-delete" title="Delete this video" aria-label="Delete this video"><svg class="ic"><use href="#i-trash"/></svg></button>
         </div>
       </div>
 
-      <div id="unsuitable" class="card error-box" hidden>
-        <h2>We couldn't assess this video</h2>
-        <p id="unsuitable-text"></p>
-        <p class="muted">Tips: film side-on at hip height, keep the camera still and level, and keep your whole body and the plate in view.</p>
-      </div>
-
-      <div class="card summary-card" id="summary-card">
-        <div class="summary-top">
-          <div class="counts" id="counts"></div>
-          <span class="source-tag" id="coach-source"></span>
+      <div id="unsuitable" class="card unsuitable" hidden>
+        <span class="big-ic"><svg class="ic"><use href="#i-camera"/></svg></span>
+        <div>
+          <h2>We couldn't assess this video</h2>
+          <p id="unsuitable-text"></p>
+          <ul class="mini-tips"><li>Film side-on at hip height</li><li>Keep the camera still and level</li><li>Whole body and the plate in view, nothing in front</li></ul>
+          <button class="btn btn-primary" type="button" data-action="restart"><svg class="ic"><use href="#i-upload"/></svg> Try another video</button>
         </div>
-        <p class="summary-text" id="summary-text"></p>
-        <div class="priorities" id="priorities"></div>
       </div>
 
-      <div class="result-grid" id="result-grid">
+      <div id="verdict" class="verdict">
+        <div class="stat-tiles" id="counts"></div>
+        <div class="card coach-card">
+          <div class="coach-head"><span class="coach-ic"><svg class="ic"><use href="#i-spark"/></svg></span>
+            <div><b>Coach summary</b><span class="source-tag" id="coach-source"></span></div></div>
+          <p class="coach-text" id="summary-text"></p>
+        </div>
+      </div>
+
+      <div class="report-grid" id="report-grid">
+        <!-- player -->
         <div class="player-col">
-          <div class="player" id="player">
-            <video id="video" playsinline muted preload="auto"></video>
-            <canvas id="overlay"></canvas>
-            <div class="frame-tag" id="frame-tag"></div>
-          </div>
-          <div class="controls">
-            <button class="iconbtn" id="btn-play" type="button" aria-label="Play">&#9654;</button>
-            <button class="iconbtn" id="btn-prev" type="button" aria-label="Previous frame" title="Previous frame">&#8249;</button>
-            <button class="iconbtn" id="btn-next" type="button" aria-label="Next frame" title="Next frame">&#8250;</button>
-            <input id="scrub" type="range" min="0" max="0" value="0" step="1" aria-label="Video position">
-            <span class="time" id="time">0:00.0</span>
-            <select id="speed" aria-label="Playback speed">
-              <option value="0.25">0.25×</option><option value="0.5" selected>0.5×</option><option value="1">1×</option>
-            </select>
-          </div>
-          <div class="rep-strip" id="rep-strip" aria-label="Reps"></div>
-          <div class="layers">
-            <label><input type="checkbox" id="lay-body" checked> Body</label>
-            <label><input type="checkbox" id="lay-bar" checked> Bar path</label>
-            <label><input type="checkbox" id="lay-measure" checked> Measurements</label>
-          </div>
-          <div class="legend">
-            <span><i class="dot solid"></i> point seen in this frame</span>
-            <span><i class="dot hollow"></i> estimated (hidden or derived)</span>
-            <span><i class="line bar"></i> bar path (plate centre)</span>
-            <span><i class="line dashed"></i> midfoot line</span>
+          <div class="card player-card">
+            <div class="player" id="player">
+              <video id="video" playsinline muted preload="auto"></video>
+              <canvas id="overlay"></canvas>
+              <div class="frame-tag" id="frame-tag"></div>
+              <div class="focus-tag" id="focus-tag" hidden></div>
+            </div>
+            <div class="controls">
+              <button class="icon-btn" id="btn-play" type="button" aria-label="Play (space)"><svg class="ic"><use href="#i-play"/></svg></button>
+              <button class="icon-btn" id="btn-prev" type="button" aria-label="Previous frame (left arrow)"><svg class="ic"><use href="#i-left"/></svg></button>
+              <button class="icon-btn" id="btn-next" type="button" aria-label="Next frame (right arrow)"><svg class="ic"><use href="#i-right"/></svg></button>
+              <span class="time" id="time">0:00.0</span>
+              <div class="speed" role="group" aria-label="Playback speed">
+                <button type="button" data-speed="0.25">¼×</button><button type="button" data-speed="0.5" class="on">½×</button><button type="button" data-speed="1">1×</button>
+              </div>
+            </div>
+            <div class="timeline" id="timeline">
+              <div class="tl-reps" id="rep-strip"></div>
+              <input id="scrub" type="range" min="0" max="0" value="0" step="1" aria-label="Video position">
+            </div>
+            <div class="layer-row">
+              <span class="muted small"><svg class="ic"><use href="#i-layers"/></svg> Show</span>
+              <label class="toggle"><input type="checkbox" id="lay-body" checked><span>Body</span></label>
+              <label class="toggle"><input type="checkbox" id="lay-bar" checked><span>Bar path</span></label>
+              <label class="toggle"><input type="checkbox" id="lay-measure" checked><span>Measurements</span></label>
+            </div>
+            <div class="legend">
+              <span><i class="lg-dot solid"></i>seen</span>
+              <span><i class="lg-dot hollow"></i>estimated</span>
+              <span><i class="lg-line bar"></i>bar path</span>
+              <span><i class="lg-line mid"></i>midfoot</span>
+              <span class="kbd-hint"><kbd>Space</kbd> play · <kbd>←</kbd><kbd>→</kbd> frame</span>
+            </div>
           </div>
         </div>
 
-        <div class="findings-col">
-          <h2>Rep-by-rep checks</h2>
-          <p class="muted small">Tap a result to see the evidence. The video jumps to the frame that was measured.</p>
-          <div class="table-wrap"><table class="matrix" id="matrix"></table></div>
-          <div class="card detail" id="detail" hidden></div>
+        <!-- panels -->
+        <div class="panel-col">
+          <div class="tabs" role="tablist" aria-label="Report sections">
+            <button role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true">Overview</button>
+            <button role="tab" id="tab-reps" aria-controls="panel-reps" aria-selected="false">Rep by rep <span class="tab-count" id="reps-count"></span></button>
+            <button role="tab" id="tab-na" aria-controls="panel-na" aria-selected="false">Not checkable</button>
+            <button role="tab" id="tab-how" aria-controls="panel-how" aria-selected="false">How it works</button>
+          </div>
 
-          <h2 class="mt">Not checkable from a side view</h2>
-          <ul class="na-list" id="na-list"></ul>
+          <div class="panel" role="tabpanel" id="panel-overview" aria-labelledby="tab-overview">
+            <h2 class="panel-h">What to work on first</h2>
+            <div class="priorities" id="priorities"></div>
+            <h2 class="panel-h">At a glance</h2>
+            <p class="muted small">Every check for every rep. Tap a result to see the evidence.</p>
+            <div class="glance-wrap"><table class="glance" id="glance"></table></div>
+          </div>
 
-          <details class="card how" id="how">
-            <summary>How this was measured</summary>
+          <div class="panel" role="tabpanel" id="panel-reps" aria-labelledby="tab-reps" hidden>
+            <div class="rep-chips" id="rep-chips" role="group" aria-label="Filter by rep"></div>
+            <div id="finding-groups"></div>
+          </div>
+
+          <div class="panel" role="tabpanel" id="panel-na" aria-labelledby="tab-na" hidden>
+            <p class="muted">These parts of the standard need a front or overhead view, or can't be seen on video at all.
+              They are listed so you know they weren't checked, not because something is wrong.</p>
+            <ul class="na-list" id="na-list"></ul>
+          </div>
+
+          <div class="panel" role="tabpanel" id="panel-how" aria-labelledby="tab-how" hidden>
             <div id="how-body"></div>
-          </details>
+          </div>
         </div>
       </div>
     </section>
   </main>
 
+  <footer class="footer">
+    <span>Squat Check · checks follow the supplied reference "The Squat" (reference pages 1-35). Not medical advice.</span>
+  </footer>
+
   <dialog id="rulebook-dialog">
     <div class="dialog-head">
-      <h2>The rulebook (skill)</h2>
-      <button class="iconbtn" type="button" id="rulebook-close" aria-label="Close">&times;</button>
+      <h2><svg class="ic"><use href="#i-book"/></svg> The rulebook</h2>
+      <button class="icon-btn" type="button" id="rulebook-close" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
     </div>
-    <p class="muted small">Every check comes from this file: <code>skill/squat-standard/criteria.yaml</code>.
-      Editing a rule here changes the next analysis. No code change is needed.</p>
+    <p class="muted small">Every check comes from <code>skill/squat-standard/criteria.yaml</code>. Edit a rule there, then press
+      <b>Re-check with rulebook</b> on a report: the result updates without re-processing the video.</p>
     <pre id="rulebook-text">Loading…</pre>
   </dialog>
+
+  <div class="toast" id="toast" role="status" hidden></div>
 
   <script src="app.js"></script>
 </body>

@@ -12,6 +12,7 @@ analysis uses it.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,14 @@ def load_skill(skill_dir: Path = SKILL_DIR) -> dict[str, Any]:
     }
 
 
+def short_unit(unit: str) -> str:
+    """'degrees between torso line (...)' -> 'degrees' (the readable part of a unit)."""
+    m = re.match(r"(thigh lengths|foot lengths|degrees|seconds)", unit or "")
+    return m.group(1) if m else (unit or "").split(" (")[0]
+
+
 def _fmt_target(target: dict, unit: str) -> str:
+    unit = short_unit(unit)
     lo, hi = target.get("min"), target.get("max")
     if lo is not None and hi is not None:
         return f"between {lo} and {hi} {unit}"
@@ -80,7 +88,7 @@ def evaluate(skill: dict, analysis: dict) -> dict[str, Any]:
                     why += " (inputs were hidden or estimated, so we won't judge it)"
             else:
                 result, why = judge(float(m["value"]), chk["target"], band)
-                why = f"{m['detail']} Target: {_fmt_target(chk['target'], unit.split(' (')[0])}; this is {why}."
+                why = f"{m['detail']} Target: {_fmt_target(chk['target'], unit)}; this is {why}."
             frame = (m or {}).get("frame")
             if frame is None:
                 frame = rep["bottom_frame"]
@@ -98,7 +106,7 @@ def evaluate(skill: dict, analysis: dict) -> dict[str, Any]:
                     "extra": m.get("extra", {}),
                 },
                 "target": chk["target"],
-                "target_text": _fmt_target(chk["target"], unit.split(" (")[0]),
+                "target_text": _fmt_target(chk["target"], unit),
                 "threshold_source": chk.get("source"),
                 "threshold_note": chk.get("note", "").strip(),
                 "uncertainty_band": round(band, 3),
