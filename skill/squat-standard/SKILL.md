@@ -40,6 +40,10 @@ person can act on.
 - **Be honest about uncertainty.** For `cannot_assess`, say why (hidden
   points, bar not tracked, too close to call, or a side view can't show it) and
   what recording would let us check it. Never guess a pass or fail.
+- **Quote the finding's own margin.** When you mention an uncertainty margin,
+  use the finding's `uncertainty_band` from the results JSON (it includes the
+  disagreement between the two pose passes and camera effects), not the base
+  `uncertainty` number in `criteria.yaml`.
 - **Plain words.** Short sentences. Talk to the lifter as "you". No jargon
   such as "landmark" or "normalised"; say "hip", "knee", "the bar".
 - **Prioritise.** Pick at most three things to work on, the failed checks that

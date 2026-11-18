@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import traceback
 from typing import Any
 
 from pathlib import Path
@@ -230,6 +231,7 @@ def _coach_gemini(skill: dict, evaluation: dict, analysis: dict) -> dict[str, An
                             "cache_read_input_tokens": getattr(u, "cached_content_token_count", 0) or 0}
         return out
     except (gerrors.APIError, json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
+        traceback.print_exc()  # full detail in the server log; the user sees a plain note
         out = rulebook_feedback(evaluation)
         out["note"] = f"AI coach unavailable ({type(e).__name__}); showing rulebook tips."
         return out
@@ -267,6 +269,7 @@ def _coach_claude(skill: dict, evaluation: dict, analysis: dict) -> dict[str, An
                         "cache_read_input_tokens": getattr(u, "cache_read_input_tokens", 0) or 0}
         return out
     except (anthropic.APIError, StopIteration, json.JSONDecodeError, KeyError) as e:
+        traceback.print_exc()
         out = rulebook_feedback(evaluation)
         out["note"] = f"AI coach unavailable ({type(e).__name__}); showing rulebook tips."
         return out

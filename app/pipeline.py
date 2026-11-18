@@ -109,6 +109,9 @@ def _assess(job_dir: Path, video: dict, lm, passes, bar: dict, skill: dict, prog
         _pass_uncertainty(result, alts)
     evaluation = evaluate(skill, result) if result["status"] == "ok" else \
         {"findings": [], "not_assessable": [], "counts": {"meets": 0, "does_not_meet": 0, "cannot_assess": 0}}
+    # numpy numbers -> plain Python before anything is serialised (the coach prompt is JSON)
+    result = json.loads(json.dumps(result, default=_to_builtin))
+    evaluation = json.loads(json.dumps(evaluation, default=_to_builtin))
     timings["measure_s"] = round(time.time() - t, 2)
 
     t = time.time()

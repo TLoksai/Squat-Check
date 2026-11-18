@@ -30,6 +30,21 @@ the bar drifts forward of the midfoot and doesn't travel in a vertical line
 (reference pp. 6, 11). Depth and back angle are close to the limits and the
 app declines to call them rather than guess.
 
+**AI coach output (Gemini 3.8 Flash, from the rulebook):**
+
+> You completed 2 reps with strong hip drive and a quick turnaround out of the
+> bottom. The main issue is bar path: the bar drifted forward of your midfoot
+> instead of traveling in a straight vertical line. We could not reliably
+> assess depth, heels staying down, or back angle due to measurement limits,
+> and a side view cannot check stance width or knees shoved out.
+
+Top priorities it chose: *bar path vertical* (cue from p. 6) and *bar over
+midfoot* (cue from p. 11). Validator: 0 of 16 feedback items dropped, meaning
+every page it cited is one the criterion cites. One issue found and fixed via
+the skill: the coach quoted the rulebook's base margin (0.05) instead of the
+finding's real margin (0.168). A one-line instruction in `SKILL.md` fixed it,
+with no code change.
+
 **What was checked by eye:** hip, knee, ankle, heel and toe points on the
 bottom frames; the plate circle matches the plate in every frame (bar measured
 in 100% of frames: 221 circle detections, 15 appearance-tracked blurred frames);

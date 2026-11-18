@@ -68,6 +68,13 @@ checked against rendered video frames and the reference text during the session.
    Fix: lock the plate size in a second tracking pass, and use the 95th
    percentile instead of the maximum. Bar results now agree to within ~1 cm
    across original, mirrored and re-encoded copies.
+8. **The AI coach crashed on its first live run.** Unit tests and a direct
+   API call both worked, but inside the app the coach fell back to rulebook
+   tips with a `TypeError`. The measurements still held numpy numbers when the
+   coach turned them into JSON for the prompt. Tests had loaded the
+   already-converted saved file, so they never hit it. Fix: convert to plain
+   numbers before the coach runs, plus a regression test, and log coach errors
+   in full instead of swallowing them.
 7. **A dark, blurry, low-resolution clip got confident fails.** The two pose
    passes agreed with each other but were both wrong, so the mirror check
    didn't catch it. Added a quality gate (size, brightness, sharpness) that

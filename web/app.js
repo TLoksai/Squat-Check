@@ -555,9 +555,11 @@
   });
   $("#rulebook-close").addEventListener("click", () => dlg.close());
 
-  // resume a job from the URL (refresh-safe)
-  loadConfig().then(() => {
+  // resume a job from the URL (refresh-safe), and follow #job= links
+  function openFromHash() {
     const m = location.hash.match(/job=([a-f0-9]+)/);
-    if (m) { beginProgress("Resuming analysis"); poll(m[1]); }
-  });
+    if (m && m[1] !== state.jobId) { beginProgress("Loading analysis"); poll(m[1]); }
+  }
+  window.addEventListener("hashchange", openFromHash);
+  loadConfig().then(openFromHash);
 })();

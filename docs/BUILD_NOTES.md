@@ -76,8 +76,9 @@ view, too small / dark / blurry, or no complete rep.
   against video frames and fixing what that turned up.
 * Reading the assignment and planning happened in an earlier session (about
   20 minutes, not counted above).
-* Not yet done inside that hour: running the AI coach with a real API key,
-  and hosting.
+* After that: about 20 more minutes adding Gemini as a coach option and
+  testing it live with a key (which found and fixed one bug, see AI_USAGE.md).
+* Not done: hosting.
 
 ## Costs
 
@@ -86,11 +87,14 @@ view, too small / dark / blurry, or no complete rep.
 * **Per video, compute:** about 25-30 s of CPU for an 8 s clip on a laptop
   (pose ~18 s for two passes, bar ~2 s, ffmpeg ~5 s). Scales roughly linearly
   with video length.
-* **Per video, AI coach (estimate):** system prompt ≈ 5.5k tokens (the skill),
-  results ≈ 4k tokens, output ≈ 2-4k tokens. On Claude Opus 5.5 ($4 / $20 per
-  M tokens) that is roughly **$0.08-0.12 per video**; a Gemini flash model is
-  typically far cheaper per token (check Google's current price list). Actual
-  token usage is shown in the report ("How this was measured").
+* **Per video, AI coach (measured with Gemini 3.8 Flash on the common
+  sample):** ~11k input tokens (~9k served from Gemini's cache), 2-4k output
+  tokens including thinking, 20-35 s. A flash model's per-token price is low
+  (check Google's current price list for the exact figure). The same prompt on
+  Claude Opus 5.5 ($4 / $20 per M tokens) would be roughly $0.08-0.12 per
+  video. Token usage is shown in each report ("How this was measured").
+* **Total per video** on the common sample with the coach: about 65 s
+  (prepare 6 s, pose 18 s, bar 6 s, coach 35 s).
 * **Why two providers:** the coach was written for Claude; the build used a
   Gemini key because that was the key available. The skill, output schema and
   validator are shared, so switching is one environment variable.
