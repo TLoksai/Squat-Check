@@ -70,14 +70,19 @@ view, too small / dark / blurry, or no complete rep.
 
 ## Time spent
 
-* **Build: about 1 hour of wall-clock time**, 2026-11-18 15:29 → 16:25 IST
-  (first command → first push), including tests and these notes. Fast because
-  the coding agent did the typing; most of the time went on checking results
-  against video frames and fixing what that turned up.
-* Reading the assignment and planning happened in an earlier session (about
-  20 minutes, not counted above).
-* After that: about 20 more minutes adding Gemini as a coach option and
-  testing it live with a key (which found and fixed one bug, see AI_USAGE.md).
+* **Total: about 2 hours 20 minutes of wall-clock time** on 2026-11-18,
+  15:29 → 17:48 IST, plus about 20 minutes reading and planning in an
+  earlier session. Fast because the coding agent did the typing; most of the
+  time went on checking results against video frames and fixing what that
+  turned up.
+
+  | Time (IST) | What |
+  |---|---|
+  | 15:29-16:25 | Rulebook, pipeline, web app, tests, docs, first push |
+  | 16:25-16:41 | Gemini as a coach option; first live coach run (found a bug) |
+  | 16:41-17:08 | Tested 4 real clips from other lifters; fixed 4 tracking failures |
+  | 17:08-17:29 | UI/UX redesign, rulebook viewer |
+  | 17:29-17:48 | Recorded the demo video |
 * Not done: hosting.
 
 ## Costs
