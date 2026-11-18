@@ -10,3 +10,5 @@ models/
 # videos are not committed: get the common sample with `python -m tools.get_sample`
 # and the difficult clips with `python -m tools.make_hard_videos`
 samples/**/*.mp4
+# demo recordings (large; upload the final MP4 to YouTube/Drive instead)
+demo/
